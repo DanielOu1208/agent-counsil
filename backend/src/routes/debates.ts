@@ -11,7 +11,7 @@ import {
   runs,
 } from "../db/schema.js";
 import { eq, and, desc } from "drizzle-orm";
-import { runDebate } from "../lib/orchestrator/engine.js";
+import { runDebate, continueDebate } from "../lib/orchestrator/engine.js";
 import { handleIntervention } from "../lib/orchestrator/intervention.js";
 import { regenerateFromNode } from "../lib/orchestrator/regenerate.js";
 
@@ -283,6 +283,51 @@ app.post("/:id/start", async (c) => {
   });
 
   return c.json({ runId: pendingRun.id, status: "started" });
+});
+
+// ─── POST /api/debates/:id/continue — continue with follow-up ─
+
+const continueSchema = z.object({
+  prompt: z.string().min(1).max(5000),
+});
+
+app.post("/:id/continue", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const parsed = continueSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.flatten() }, 400);
+  }
+
+  const [debate] = await db.select().from(debates).where(eq(debates.id, id));
+  if (!debate) return c.json({ error: "Debate not found" }, 404);
+  if (debate.status === "running") return c.json({ error: "Debate is already running" }, 409);
+  if (debate.status !== "completed") {
+    return c.json({ error: "Debate must be completed before continuing" }, 400);
+  }
+
+  const branchId = debate.activeBranchId!;
+  const now = new Date().toISOString();
+  const runId = uuid();
+
+  // Create a new run for the continuation
+  await db.insert(runs)
+    .values({
+      id: runId,
+      debateId: id,
+      branchId,
+      phase: "setup",
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+  // Run asynchronously — do not await
+  continueDebate(id, runId, parsed.data.prompt).catch((err) => {
+    console.error("Debate continuation failed:", err);
+  });
+
+  return c.json({ runId, status: "started" });
 });
 
 // ─── POST /api/debates/:id/intervene — user intervention ────

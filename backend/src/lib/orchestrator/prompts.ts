@@ -135,3 +135,90 @@ ${instruction}
 """
 Take this into account in your next response. Adjust your position or analysis accordingly.`;
 }
+
+// ─── Continuation Prompt Templates ─────────────────────────
+
+export function continuationOpeningPrompt(
+  goal: string,
+  userFollowUp: string,
+  priorPositions: { agentName: string; content: string }[],
+  priorSynthesis: string,
+): string {
+  const positionsText = priorPositions
+    .map((p) => `**${p.agentName}**:\n${p.content}`)
+    .join("\n\n---\n\n");
+
+  return `You are continuing a structured multi-agent debate.
+
+The original debate question/problem was:
+"""
+${goal}
+"""
+
+In the previous round, agents gave these positions:
+
+${positionsText}
+
+The synthesis engine concluded:
+"""
+${priorSynthesis}
+"""
+
+Now the user has a follow-up question or direction:
+"""
+${userFollowUp}
+"""
+
+Respond to the user's follow-up, taking into account:
+1. Your previous position and the other agents' positions
+2. The synthesis from the prior round
+3. The specific follow-up question/direction
+
+Give a clear, updated recommendation addressing the follow-up.`;
+}
+
+export function continuationSynthesisPrompt(
+  goal: string,
+  userFollowUp: string,
+  priorSynthesis: string,
+  newPositions: { agentName: string; content: string }[],
+): string {
+  const positionsText = newPositions
+    .map((p) => `**${p.agentName}**:\n${p.content}`)
+    .join("\n\n---\n\n");
+
+  return `You are the synthesis orchestrator for a multi-agent debate that is continuing with a follow-up.
+
+The original debate question/problem was:
+"""
+${goal}
+"""
+
+The previous round's synthesis was:
+"""
+${priorSynthesis}
+"""
+
+The user asked a follow-up:
+"""
+${userFollowUp}
+"""
+
+The agents have provided updated positions addressing the follow-up:
+
+${positionsText}
+
+Produce the final output with TWO clearly separated sections:
+
+## Final Recommendation
+Synthesize the agents' updated positions into a clear, actionable recommendation that addresses the follow-up question. Reference how this builds on or changes the previous recommendation where relevant.
+
+## Key Arguments Summary
+List the most important argument points:
+- How positions evolved from the previous round
+- Areas of consensus on the follow-up
+- Key disagreements and how they were resolved (or not)
+- Critical risks or concerns raised
+
+Be decisive. The user needs a clear answer, not a fence-sitting summary.`;
+}
