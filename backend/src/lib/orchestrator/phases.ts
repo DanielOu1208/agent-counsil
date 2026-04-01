@@ -9,6 +9,8 @@ import {
   buildCritiqueContext,
   buildConvergenceContext,
   buildSynthesisContext,
+  buildContinuationOpeningContext,
+  buildContinuationSynthesisContext,
 } from "./context.js";
 
 interface PhaseParams {
@@ -328,6 +330,177 @@ export async function runFinalPhase(
           data: {
             edgeId,
             fromNodeId: convergenceNodeId,
+            toNodeId: finalNodeId,
+            edgeType: "summarizes",
+          },
+        });
+      }
+    },
+  });
+
+  return result;
+}
+
+// ─── Continuation Opening Phase ────────────────────────────
+export async function runContinuationOpeningPhase(
+  params: PhaseParams,
+  userFollowUp: string,
+  userFollowUpNodeId: string,
+  priorPositions: { agentName: string; content: string }[],
+  priorSynthesis: string,
+): Promise<JobResult[]> {
+  const { debateId, branchId, runId, goal } = params;
+  const debateAgents = await getDebateAgents(debateId);
+
+  // Create orchestrator node for this continuation phase
+  const rootNodeId = uuid();
+  const now = new Date().toISOString();
+  await db.insert(nodes)
+    .values({
+      id: rootNodeId,
+      debateId,
+      branchId,
+      parentNodeId: userFollowUpNodeId,
+      speakerType: "orchestrator",
+      speakerId: null,
+      nodeType: "message",
+      content: `Continuation: Agents respond to follow-up "${userFollowUp}"`,
+      status: "complete",
+      createdAt: now,
+    });
+
+  await db.insert(edges)
+    .values({
+      id: uuid(),
+      debateId,
+      branchId,
+      fromNodeId: userFollowUpNodeId,
+      toNodeId: rootNodeId,
+      edgeType: "responds_to",
+      createdAt: now,
+    });
+
+  emitDebateEvent(debateId, {
+    type: "node:created",
+    data: {
+      nodeId: rootNodeId,
+      speakerType: "orchestrator",
+      speakerId: undefined,
+      nodeType: "message",
+      parentNodeId: userFollowUpNodeId,
+      createdAt: now,
+    },
+  });
+
+  emitDebateEvent(debateId, {
+    type: "node:complete",
+    data: {
+      nodeId: rootNodeId,
+      content: `Continuation: Agents respond to follow-up "${userFollowUp}"`,
+    },
+  });
+
+  // Execute all agent jobs in parallel with continuation context
+  const jobPromises = debateAgents.map((agent) => {
+    const messages = buildContinuationOpeningContext(
+      goal,
+      userFollowUp,
+      agent,
+      priorPositions,
+      priorSynthesis,
+    );
+    return executeAgentJob({
+      runId,
+      debateId,
+      branchId,
+      agentId: agent.id,
+      agentName: agent.name,
+      modelKey: agent.modelKey,
+      messages,
+      speakerType: "agent",
+      nodeType: "message",
+      parentNodeId: rootNodeId,
+      edgeType: "responds_to",
+    });
+  });
+
+  const results = await Promise.allSettled(jobPromises);
+  const successful: JobResult[] = [];
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      successful.push(result.value);
+    } else {
+      console.error("Continuation opening phase job failed:", result.reason);
+    }
+  }
+
+  return successful;
+}
+
+// ─── Continuation Final Phase ──────────────────────────────
+export async function runContinuationFinalPhase(
+  params: PhaseParams,
+  userFollowUp: string,
+  priorSynthesis: string,
+  continuationResults: JobResult[],
+): Promise<JobResult> {
+  const { debateId, branchId, runId, goal } = params;
+  const debateAgents = await getDebateAgents(debateId);
+
+  // Build new positions from continuation results
+  const newPositions: { agentName: string; content: string }[] = [];
+  for (const result of continuationResults) {
+    const [node] = await db.select().from(nodes).where(eq(nodes.id, result.nodeId));
+    if (node && node.speakerId) {
+      const agent = debateAgents.find((a) => a.id === node.speakerId);
+      if (agent) {
+        newPositions.push({ agentName: agent.name, content: result.content });
+      }
+    }
+  }
+
+  const messages = buildContinuationSynthesisContext(goal, userFollowUp, priorSynthesis, newPositions);
+
+  const synthesisModel = process.env.SYNTHESIS_MODEL ?? "gemini:gemini-2.5-flash-lite";
+
+  const result = await executeAgentJob({
+    runId,
+    debateId,
+    branchId,
+    agentId: "orchestrator",
+    agentName: "Synthesis Engine",
+    modelKey: synthesisModel,
+    messages,
+    speakerType: "orchestrator",
+    nodeType: "final",
+    parentNodeId: continuationResults[0]?.nodeId,
+    edgeType: "summarizes",
+    onNodeCreated: async (finalNodeId) => {
+      if (continuationResults.length < 2) return;
+
+      const now = new Date().toISOString();
+      for (let i = 1; i < continuationResults.length; i++) {
+        const nodeId = continuationResults[i]?.nodeId;
+        if (!nodeId) continue;
+
+        const edgeId = uuid();
+        await db.insert(edges)
+          .values({
+            id: edgeId,
+            debateId,
+            branchId,
+            fromNodeId: nodeId,
+            toNodeId: finalNodeId,
+            edgeType: "summarizes",
+            createdAt: now,
+          });
+
+        emitDebateEvent(debateId, {
+          type: "edge:created",
+          data: {
+            edgeId,
+            fromNodeId: nodeId,
             toNodeId: finalNodeId,
             edgeType: "summarizes",
           },

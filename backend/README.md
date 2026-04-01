@@ -81,6 +81,7 @@ SYNTHESIS_MODEL=mock:default
 - `GET /api/debates/:id` — Get debate details
 - `GET /api/debates/:id/graph` — Get nodes + edges (optional `?branch_id=`)
 - `POST /api/debates/:id/start` — Start the debate
+- `POST /api/debates/:id/continue` — Continue a completed debate with a follow-up prompt
 - `POST /api/debates/:id/intervene` — Inject user intervention
 - `POST /api/debates/:id/finalize` — Force final synthesis
 

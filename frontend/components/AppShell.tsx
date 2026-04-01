@@ -28,6 +28,7 @@ interface AppShellProps {
   onSendMessage: (content: string) => void;
   status: DebateStatus;
   onFinalize: () => void;
+  onNewDebate: () => void;
   disableFinalize: boolean;
 }
 
@@ -43,6 +44,7 @@ export default function AppShell({
   onSendMessage,
   status,
   onFinalize,
+  onNewDebate,
   disableFinalize,
 }: AppShellProps) {
   return (
@@ -51,6 +53,7 @@ export default function AppShell({
       <DebateSidebar
         status={status}
         onFinalize={onFinalize}
+        onNewDebate={onNewDebate}
         disableFinalize={disableFinalize}
       />
 

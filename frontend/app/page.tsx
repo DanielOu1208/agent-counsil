@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import {
+  continueDebate,
   createDebate,
   fetchGraph,
   fetchModels,
@@ -290,7 +291,7 @@ export default function Home() {
         console.error('SSE stream disconnected');
       };
     },
-    [closeStream, refreshGraph],
+    [closeStream],
   );
 
   const startNewDebate = useCallback(
@@ -384,6 +385,15 @@ export default function Home() {
     };
   }, [closeStream]);
 
+  const handleNewDebate = useCallback(() => {
+    closeStream();
+    setDebateId(null);
+    setAgentLaneById({});
+    setGraphNodes([]);
+    setGraphEdges([]);
+    setStatus('idle');
+  }, [closeStream]);
+
   const handleLaneSettingsChange = useCallback((laneId: LaneId, settings: LaneSettings) => {
     setLaneSettings((prev) => ({
       ...prev,
@@ -397,13 +407,19 @@ export default function Home() {
       if (!trimmed || status === 'starting') return;
 
       try {
-        if (!debateId || status === 'completed' || status === 'errored') {
+        if (!debateId || status === 'idle' || status === 'errored') {
           closeStream();
           setDebateId(null);
           setGraphNodes([]);
           setGraphEdges([]);
           setStatus('starting');
           await startNewDebate(trimmed);
+          return;
+        }
+
+        if (status === 'completed') {
+          setStatus('running');
+          await continueDebate(debateId, trimmed);
           return;
         }
 
@@ -457,6 +473,7 @@ export default function Home() {
       onSendMessage={handleSendMessage}
       status={status}
       onFinalize={handleFinalize}
+      onNewDebate={handleNewDebate}
       disableFinalize={!debateId || status !== 'running'}
     />
   );

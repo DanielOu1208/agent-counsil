@@ -68,6 +68,16 @@ export function startDebate(debateId: string): Promise<{ runId: string; status: 
   });
 }
 
+export function continueDebate(
+  debateId: string,
+  prompt: string,
+): Promise<{ runId: string; status: string }> {
+  return request<{ runId: string; status: string }>(`/api/debates/${debateId}/continue`, {
+    method: "POST",
+    body: JSON.stringify({ prompt }),
+  });
+}
+
 export function fetchGraph(
   debateId: string,
 ): Promise<{ nodes: DebateGraphNode[]; edges: DebateGraphEdge[] }> {

@@ -11,6 +11,7 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  PlusCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -20,12 +21,14 @@ import { DebateStatus } from '@/types/ui';
 interface DebateSidebarProps {
   status: DebateStatus;
   onFinalize: () => void;
+  onNewDebate: () => void;
   disableFinalize: boolean;
 }
 
 export default function DebateSidebar({
   status,
   onFinalize,
+  onNewDebate,
   disableFinalize,
 }: DebateSidebarProps) {
   const statusColor: Record<DebateStatus, string> = {
@@ -97,6 +100,16 @@ export default function DebateSidebar({
           </span>
         </div>
         <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            onClick={onNewDebate}
+            disabled={status === 'starting'}
+            className="w-full"
+          >
+            <PlusCircle className="size-4" />
+            New Debate
+          </Button>
+
           {status === 'idle' && (
             <Button disabled className="w-full">
               <Play className="size-4" />
@@ -124,7 +137,7 @@ export default function DebateSidebar({
 
           {status === 'completed' && (
             <p className="text-xs text-muted-foreground px-1">
-              Debate completed. Send a new prompt to create another debate.
+              Debate completed. Send a follow-up to continue, or click New Debate to start fresh.
             </p>
           )}
           {status === 'errored' && (
