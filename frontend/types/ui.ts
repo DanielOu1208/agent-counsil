@@ -15,6 +15,14 @@ export const LANE_CONFIGS: LaneConfig[] = [
   { id: 'debater-c', label: 'Debater C', avatar: '🟡', role: 'Synthesizer' },
 ];
 
+// Lucide icon names for each lane (used for consistent icon rendering)
+export const LANE_ICON_NAMES: Record<LaneId, string> = {
+  orchestrator: 'sparkles',
+  'debater-a': 'shield',
+  'debater-b': 'user',
+  'debater-c': 'bot',
+};
+
 export type ModelOption = 'gpt-4' | 'claude-3' | 'gemini-pro' | 'llama-3';
 export type PersonalityOption = 'neutral' | 'analytical' | 'creative' | 'skeptical' | 'enthusiastic';
 

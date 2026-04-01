@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useMemo, useState, useRef } from 'react';
-import ReactFlow, { 
-  Node, 
-  Background,
-} from 'reactflow';
+import ReactFlow, { Node, Background } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { X, GripVertical, MessageSquare } from 'lucide-react';
 import { mockNodes, mockEdges, nodeConversations } from '@/lib/mockData';
-import { X, GripVertical } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 
 interface OpenPopout {
   id: string;
@@ -29,13 +30,13 @@ export default function TopGraphStrip() {
   const dragOffset = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Calculate next non-overlapping position for a new popout
   const getNextPosition = useCallback((): { x: number; y: number } => {
     const count = openPopouts.size;
     const col = count % POPOUT_COLUMNS;
     const row = Math.floor(count / POPOUT_COLUMNS);
     const containerWidth = containerRef.current?.clientWidth ?? 1200;
-    const totalGridWidth = POPOUT_COLUMNS * POPOUT_WIDTH + (POPOUT_COLUMNS - 1) * POPOUT_GAP;
+    const totalGridWidth =
+      POPOUT_COLUMNS * POPOUT_WIDTH + (POPOUT_COLUMNS - 1) * POPOUT_GAP;
     const preferredStartX = containerWidth - totalGridWidth - POPOUT_GAP;
     const startX = Math.max(MIN_X_CLEAR_SETTINGS, preferredStartX);
 
@@ -45,17 +46,16 @@ export default function TopGraphStrip() {
     };
   }, [openPopouts]);
 
-  // Use memoized nodes with selection highlight for open popouts
   const nodes = useMemo(() => {
     return mockNodes.map((node) => ({
       ...node,
       style: {
         ...node.style,
-        border: openPopouts.has(node.id) 
-          ? '2px solid #89b4fa' 
-          : node.style?.border || '2px solid #2a2a34',
-        boxShadow: openPopouts.has(node.id) 
-          ? '0 0 12px rgba(137, 180, 250, 0.4)' 
+        border: openPopouts.has(node.id)
+          ? '2px solid oklch(0.72 0.14 270)'
+          : node.style?.border || '2px solid oklch(0.25 0.012 270)',
+        boxShadow: openPopouts.has(node.id)
+          ? '0 0 12px oklch(0.72 0.14 270 / 0.4)'
           : 'none',
         cursor: 'pointer',
       },
@@ -66,60 +66,69 @@ export default function TopGraphStrip() {
     return mockEdges;
   }, []);
 
-  const togglePopout = useCallback((nodeId: string) => {
-    setOpenPopouts(prev => {
-      const newMap = new Map(prev);
-      if (newMap.has(nodeId)) {
-        newMap.delete(nodeId);
-      } else {
-        newMap.set(nodeId, {
-          id: nodeId,
-          ...getNextPosition(),
-        });
-      }
-      return newMap;
-    });
-  }, [getNextPosition]);
+  const togglePopout = useCallback(
+    (nodeId: string) => {
+      setOpenPopouts((prev) => {
+        const newMap = new Map(prev);
+        if (newMap.has(nodeId)) {
+          newMap.delete(nodeId);
+        } else {
+          newMap.set(nodeId, {
+            id: nodeId,
+            ...getNextPosition(),
+          });
+        }
+        return newMap;
+      });
+    },
+    [getNextPosition]
+  );
 
   const closePopout = useCallback((nodeId: string) => {
-    setOpenPopouts(prev => {
+    setOpenPopouts((prev) => {
       const newMap = new Map(prev);
       newMap.delete(nodeId);
       return newMap;
     });
   }, []);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
-    e.preventDefault();
-    const popout = openPopouts.get(nodeId);
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!popout || !rect) return;
-    
-    dragOffset.current = {
-      x: e.clientX - rect.left - popout.x,
-      y: e.clientY - rect.top - popout.y,
-    };
-    setDraggingId(nodeId);
-  }, [openPopouts]);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent, nodeId: string) => {
+      e.preventDefault();
+      const popout = openPopouts.get(nodeId);
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!popout || !rect) return;
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!draggingId || !rect) return;
-    
-    const maxX = Math.max(0, rect.width - POPOUT_WIDTH);
-    const maxY = Math.max(0, rect.height - POPOUT_HEIGHT);
-    const newX = Math.min(maxX, Math.max(0, e.clientX - rect.left - dragOffset.current.x));
-    const newY = Math.min(maxY, Math.max(0, e.clientY - rect.top - dragOffset.current.y));
-    
-    setOpenPopouts(prev => {
-      const newMap = new Map(prev);
-      const popout = newMap.get(draggingId);
-      if (popout) {
-        newMap.set(draggingId, { ...popout, x: newX, y: newY });
-      }
-      return newMap;
-    });
-  }, [draggingId]);
+      dragOffset.current = {
+        x: e.clientX - rect.left - popout.x,
+        y: e.clientY - rect.top - popout.y,
+      };
+      setDraggingId(nodeId);
+    },
+    [openPopouts]
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!draggingId || !rect) return;
+
+      const maxX = Math.max(0, rect.width - POPOUT_WIDTH);
+      const maxY = Math.max(0, rect.height - POPOUT_HEIGHT);
+      const newX = Math.min(maxX, Math.max(0, e.clientX - rect.left - dragOffset.current.x));
+      const newY = Math.min(maxY, Math.max(0, e.clientY - rect.top - dragOffset.current.y));
+
+      setOpenPopouts((prev) => {
+        const newMap = new Map(prev);
+        const popout = newMap.get(draggingId);
+        if (popout) {
+          newMap.set(draggingId, { ...popout, x: newX, y: newY });
+        }
+        return newMap;
+      });
+    },
+    [draggingId]
+  );
 
   const handleMouseUp = useCallback(() => {
     setDraggingId(null);
@@ -132,19 +141,21 @@ export default function TopGraphStrip() {
     [togglePopout]
   );
 
-  // Handle empty data gracefully
   if (mockNodes.length === 0) {
     return (
-      <div className="absolute inset-0 bg-[#111116] flex items-center justify-center">
-        <p className="text-gray-500">No graph data available</p>
+      <div className="absolute inset-0 bg-card flex items-center justify-center">
+        <div className="flex flex-col items-center gap-2">
+          <MessageSquare className="size-8 text-muted-foreground" />
+          <p className="text-muted-foreground">No graph data available</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="absolute inset-0 bg-[#111116]"
+      className="absolute inset-0 bg-card"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
@@ -163,20 +174,20 @@ export default function TopGraphStrip() {
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={true}
-        style={{ background: '#111116' }}
+        style={{ background: 'oklch(0.14 0.008 270)' }}
       >
-        <Background color="#1e1e24" gap={16} />
+        <Background color="oklch(0.2 0.01 270)" gap={16} />
       </ReactFlow>
-      
+
       {/* Open Popouts */}
       {Array.from(openPopouts.entries()).map(([nodeId, popout]) => {
         const nodeData = nodeConversations[nodeId];
         if (!nodeData) return null;
-        
+
         return (
-          <div
+          <Card
             key={nodeId}
-            className="absolute bg-[#0a0a0e] border border-[#2a2a34] rounded-lg shadow-lg z-30"
+            className="absolute bg-background border border-border shadow-xl z-30"
             style={{
               left: popout.x,
               top: popout.y,
@@ -185,37 +196,39 @@ export default function TopGraphStrip() {
             }}
           >
             {/* Popup Header - Draggable */}
-            <div 
-              className="flex items-center justify-between p-3 border-b border-[#1e1e24] cursor-move"
+            <CardHeader
+              className="cursor-move py-3 flex-row items-center justify-between space-y-0"
               onMouseDown={(e) => handleMouseDown(e, nodeId)}
             >
               <div className="flex items-center gap-2">
-                <GripVertical className="w-4 h-4 text-gray-500" />
-                <div className="w-1.5 h-4 bg-[#89b4fa] rounded-full" />
+                <GripVertical className="size-4 text-muted-foreground" />
+                <div className="w-1.5 h-4 bg-primary" />
                 <div>
-                  <h3 className="text-sm font-semibold text-[#d4d4d8]">{nodeData.title}</h3>
-                  <span className="text-xs text-gray-500">{nodeData.lane}</span>
+                  <CardTitle className="text-sm">{nodeData.title}</CardTitle>
+                  <span className="text-xs text-muted-foreground">{nodeData.lane}</span>
                 </div>
               </div>
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={(e) => {
                   e.stopPropagation();
                   closePopout(nodeId);
                 }}
-                className="p-1 hover:bg-[#1e1e24] rounded transition-colors"
                 aria-label="Close popup"
               >
-                <X className="w-4 h-4 text-gray-400" />
-              </button>
-            </div>
-            
-            {/* Popup Content */}
-            <div className="p-3">
-              <p className="text-sm text-gray-300 leading-relaxed">
-                {nodeData.content}
-              </p>
-            </div>
-          </div>
+                <X className="size-4" />
+              </Button>
+            </CardHeader>
+            <Separator />
+            <CardContent className="py-3">
+              <ScrollArea className="max-h-[120px]">
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {nodeData.content}
+                </p>
+              </ScrollArea>
+            </CardContent>
+          </Card>
         );
       })}
     </div>

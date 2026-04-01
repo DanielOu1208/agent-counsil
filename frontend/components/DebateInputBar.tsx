@@ -2,6 +2,9 @@
 
 import { useState, KeyboardEvent } from 'react';
 import { Send } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface DebateInputBarProps {
   onSendMessage: (content: string) => void;
@@ -26,31 +29,34 @@ export default function DebateInputBar({ onSendMessage, disabled = false }: Deba
   };
 
   return (
-    <div className="bg-[#0a0a0e]/95 backdrop-blur-sm border border-[#2a2a34] rounded-lg shadow-xl p-3">
-      <div className="flex items-end gap-2">
-        <div className="flex-1 relative">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
-            placeholder={disabled ? "Debate completed" : "Type your message or intervention..."}
-            className="w-full bg-[#111116] border border-[#1e1e24] rounded-lg px-3 py-2 pr-10 text-[#d4d4d8] placeholder-gray-600 text-sm resize-none focus:outline-none focus:border-[#2a2a34] focus:ring-1 focus:ring-[#2a2a34] disabled:opacity-50 disabled:cursor-not-allowed"
-            rows={1}
-            style={{ minHeight: '38px', maxHeight: '80px' }}
-          />
-          <button
-            onClick={handleSubmit}
-            disabled={!input.trim() || disabled}
-            className="absolute right-2 bottom-2 p-1.5 rounded-md bg-[#2a2a34] hover:bg-[#3a3a44] disabled:bg-[#1e1e24] disabled:cursor-not-allowed transition-colors"
-          >
-            <Send className="w-3.5 h-3.5 text-gray-400" />
-          </button>
+    <Card className="bg-popover/95 backdrop-blur-sm shadow-xl border border-border py-3">
+      <CardContent className="px-3 py-0">
+        <div className="flex items-end gap-2">
+          <div className="flex-1 relative">
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={disabled}
+              placeholder={disabled ? 'Debate completed' : 'Type your message or intervention...'}
+              className="min-h-[38px] max-h-[80px] text-sm resize-none pr-10"
+              rows={1}
+            />
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={handleSubmit}
+              disabled={!input.trim() || disabled}
+              className="absolute right-2 bottom-2"
+            >
+              <Send className="size-3.5" />
+            </Button>
+          </div>
         </div>
-      </div>
-      <p className="text-[10px] text-gray-600 mt-1.5 text-center">
-        Press Enter to send, Shift+Enter for new line
-      </p>
-    </div>
+        <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
+          Press Enter to send, Shift+Enter for new line
+        </p>
+      </CardContent>
+    </Card>
   );
 }

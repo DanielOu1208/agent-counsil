@@ -1,17 +1,20 @@
 'use client';
 
-import { 
-  LayoutDashboard, 
-  MessageSquare, 
-  Settings, 
-  History, 
+import {
+  LayoutDashboard,
+  MessageSquare,
+  Settings,
+  History,
   HelpCircle,
   Circle,
   Play,
   Pause,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DebateStatus } from '@/types/ui';
 
 interface DebateSidebarProps {
@@ -20,158 +23,164 @@ interface DebateSidebarProps {
 }
 
 export default function DebateSidebar({ status, onStatusChange }: DebateSidebarProps) {
-  const statusColor = {
-    idle: 'text-gray-400',
+  const statusColor: Record<DebateStatus, string> = {
+    idle: 'text-muted-foreground',
     running: 'text-green-400 animate-pulse',
     paused: 'text-yellow-400',
-    completed: 'text-blue-400',
-  }[status];
+    completed: 'text-primary',
+  };
 
-  const statusLabel = {
+  const statusLabel: Record<DebateStatus, string> = {
     idle: 'Ready',
     running: 'Active',
     paused: 'Paused',
     completed: 'Done',
-  }[status];
-
-  const handleStart = () => {
-    onStatusChange('running');
   };
 
-  const handlePause = () => {
-    onStatusChange('paused');
-  };
-
+  const handleStart = () => onStatusChange('running');
+  const handlePause = () => onStatusChange('paused');
   const handleIntervene = () => {
     alert('Intervention triggered! This would pause for user input in a real implementation.');
   };
-
-  const handleFinalize = () => {
-    onStatusChange('completed');
-  };
+  const handleFinalize = () => onStatusChange('completed');
 
   return (
-    <aside className="w-60 bg-[#111116] flex flex-col border-r border-[#1e1e24]">
+    <aside className="w-60 bg-card flex flex-col border-r border-border">
       {/* Header */}
-      <div className="p-4 border-b border-[#1e1e24]">
+      <div className="p-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
-            <MessageSquare className="w-5 h-5 text-white" />
+          <div className="size-9 flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-600">
+            <MessageSquare className="size-5 text-white" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-[#d4d4d8]">Debate Arena</h1>
-            <span className="text-xs text-gray-500">v1.0</span>
+            <h1 className="text-sm font-semibold text-foreground">Debate Arena</h1>
+            <span className="text-xs text-muted-foreground">v1.0</span>
           </div>
         </div>
       </div>
-      
+
+      <Separator />
+
       {/* Navigation */}
       <nav className="flex-1 py-4">
-        <div className="px-3 mb-2">
-          <span className="text-xs font-medium text-gray-500 uppercase tracking-wider px-2">Navigation</span>
+        <div className="px-4 mb-2">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2">
+            Navigation
+          </span>
         </div>
-        <button className="w-full flex items-center gap-3 px-4 py-2.5 text-purple-400 bg-[#1e1e24]/50 hover:bg-[#1e1e24] transition-colors">
-          <LayoutDashboard className="w-4 h-4" />
-          <span className="text-sm">Dashboard</span>
-        </button>
-        <button className="w-full flex items-center gap-3 px-4 py-2.5 text-gray-400 hover:text-gray-200 hover:bg-[#1e1e24]/50 transition-colors">
-          <MessageSquare className="w-4 h-4" />
-          <span className="text-sm">Debates</span>
-        </button>
-        <button className="w-full flex items-center gap-3 px-4 py-2.5 text-gray-400 hover:text-gray-200 hover:bg-[#1e1e24]/50 transition-colors">
-          <History className="w-4 h-4" />
-          <span className="text-sm">History</span>
-        </button>
-        <button className="w-full flex items-center gap-3 px-4 py-2.5 text-gray-400 hover:text-gray-200 hover:bg-[#1e1e24]/50 transition-colors">
-          <Settings className="w-4 h-4" />
-          <span className="text-sm">Settings</span>
-        </button>
+        <div className="flex flex-col gap-0.5 px-2">
+          <Button variant="ghost" className="w-full justify-start gap-3 text-primary">
+            <LayoutDashboard className="size-4" />
+            <span className="text-sm">Dashboard</span>
+          </Button>
+          <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
+            <MessageSquare className="size-4" />
+            <span className="text-sm">Debates</span>
+          </Button>
+          <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
+            <History className="size-4" />
+            <span className="text-sm">History</span>
+          </Button>
+          <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
+            <Settings className="size-4" />
+            <span className="text-sm">Settings</span>
+          </Button>
+        </div>
       </nav>
 
-      {/* Session Controls Section */}
-      <div className="border-t border-[#1e1e24] p-3">
+      {/* Session Controls */}
+      <Separator />
+      <div className="p-3">
         <div className="mb-2">
-          <span className="text-xs font-medium text-gray-500 uppercase tracking-wider px-1">Session Controls</span>
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-1">
+            Session Controls
+          </span>
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {status === 'idle' && (
-            <button
+            <Button
               onClick={handleStart}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-medium transition-colors"
+              className="w-full bg-green-600 hover:bg-green-500 text-white"
             >
-              <Play className="w-4 h-4" />
+              <Play className="size-4" />
               Start
-            </button>
+            </Button>
           )}
-          
+
           {status === 'running' && (
             <>
-              <button
+              <Button
                 onClick={handlePause}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-white text-sm font-medium transition-colors"
+                className="w-full bg-yellow-600 hover:bg-yellow-500 text-white"
               >
-                <Pause className="w-4 h-4" />
+                <Pause className="size-4" />
                 Pause
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleIntervene}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors"
+                className="w-full bg-orange-600 hover:bg-orange-500 text-white"
               >
-                <AlertTriangle className="w-4 h-4" />
+                <AlertTriangle className="size-4" />
                 Intervene
-              </button>
+              </Button>
             </>
           )}
-          
+
           {status === 'paused' && (
             <>
-              <button
+              <Button
                 onClick={handleStart}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-medium transition-colors"
+                className="w-full bg-green-600 hover:bg-green-500 text-white"
               >
-                <Play className="w-4 h-4" />
+                <Play className="size-4" />
                 Resume
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleIntervene}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium transition-colors"
+                className="w-full bg-orange-600 hover:bg-orange-500 text-white"
               >
-                <AlertTriangle className="w-4 h-4" />
+                <AlertTriangle className="size-4" />
                 Intervene
-              </button>
+              </Button>
             </>
           )}
-          
+
           {(status === 'running' || status === 'paused') && (
-            <button
+            <Button
               onClick={handleFinalize}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white"
             >
-              <CheckCircle2 className="w-4 h-4" />
+              <CheckCircle2 className="size-4" />
               Finalize
-            </button>
+            </Button>
           )}
-          
+
           {status === 'completed' && (
-            <div className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-gray-600 text-white text-sm font-medium">
-              <CheckCircle2 className="w-4 h-4" />
+            <Button disabled className="w-full">
+              <CheckCircle2 className="size-4" />
               Completed
-            </div>
+            </Button>
           )}
         </div>
       </div>
-      
+
       {/* Footer */}
-      <div className="border-t border-[#1e1e24] p-3">
-        <button className="w-full flex items-center gap-3 px-2 py-2 text-gray-400 hover:text-gray-200 hover:bg-[#1e1e24]/50 rounded-lg transition-colors">
-          <HelpCircle className="w-4 h-4" />
-          <span className="text-sm">Help</span>
-        </button>
-        
+      <Separator />
+      <div className="p-3">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
+              <HelpCircle className="size-4" />
+              <span className="text-sm">Help</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Get help and documentation</TooltipContent>
+        </Tooltip>
+
         {/* Status Indicator */}
         <div className="flex items-center gap-2 px-2 py-2 mt-1">
-          <Circle className={`w-2.5 h-2.5 ${statusColor} fill-current`} />
-          <span className="text-xs text-gray-500">{statusLabel}</span>
+          <Circle className={`size-2.5 ${statusColor[status]} fill-current`} />
+          <span className="text-xs text-muted-foreground">{statusLabel[status]}</span>
         </div>
       </div>
     </aside>
