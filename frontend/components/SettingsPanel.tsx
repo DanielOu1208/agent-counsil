@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Settings2, Sparkles, Shield, User, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from '@/components/ui/card';
 import {
@@ -42,6 +42,13 @@ export default function SettingsPanel({
 }: SettingsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
+  const laneIcons: Record<LaneId, React.ReactNode> = {
+    orchestrator: <Sparkles className="size-4 text-muted-foreground" />,
+    'debater-a': <Shield className="size-4 text-muted-foreground" />,
+    'debater-b': <User className="size-4 text-muted-foreground" />,
+    'debater-c': <Bot className="size-4 text-muted-foreground" />,
+  };
+
   return (
     <Card className="bg-popover/95 backdrop-blur-sm w-60 max-h-[calc(100vh-120px)] border border-border shadow-xl">
       <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
@@ -74,7 +81,9 @@ export default function SettingsPanel({
                       className="p-2 bg-card border border-border"
                     >
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-base">{lane.avatar}</span>
+                        <div className="flex items-center justify-center">
+                          {laneIcons[lane.id]}
+                        </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="text-xs font-medium text-foreground truncate">
                             {lane.label}

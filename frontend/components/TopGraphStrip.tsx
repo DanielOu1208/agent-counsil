@@ -36,10 +36,10 @@ const MIN_X_CLEAR_SETTINGS = 340;
 const POPOUT_START_Y = 24;
 
 const LANE_COLORS: Record<LaneId, string> = {
-  orchestrator: 'oklch(0.72 0.14 270)',
-  'debater-a': 'oklch(0.72 0.16 250)',
-  'debater-b': 'oklch(0.78 0.14 160)',
-  'debater-c': 'oklch(0.82 0.14 90)',
+  orchestrator: 'oklch(0.7 0 0)',
+  'debater-a': 'oklch(0.65 0 0)',
+  'debater-b': 'oklch(0.6 0 0)',
+  'debater-c': 'oklch(0.55 0 0)',
 };
 
 function getNodeTitle(node: DebateGraphNode): string {
@@ -141,12 +141,12 @@ export default function TopGraphStrip({
         },
         data: { label: getNodeLabel(node) },
         style: {
-          background: 'oklch(0.14 0.008 270)',
+          background: 'oklch(0.15 0 0)',
           color: LANE_COLORS[laneId],
           border:
             node.status === 'streaming'
               ? `2px solid ${LANE_COLORS[laneId]}`
-              : '2px solid oklch(0.25 0.012 270)',
+              : '2px solid oklch(0.28 0 0)',
           borderRadius: '0px',
           padding: '10px 15px',
           fontSize: '13px',
@@ -167,7 +167,7 @@ export default function TopGraphStrip({
         source: node.parentNodeId as string,
         target: node.id,
         animated: node.status === 'streaming',
-        style: { stroke: 'oklch(0.25 0.012 270)' },
+        style: { stroke: 'oklch(0.28 0 0)' },
       }));
 
     const nextFlowEdges: Edge[] =
@@ -179,7 +179,7 @@ export default function TopGraphStrip({
               source: edge.fromNodeId,
               target: edge.toNodeId,
               animated: targetNode?.status === 'streaming',
-              style: { stroke: 'oklch(0.25 0.012 270)' },
+              style: { stroke: 'oklch(0.28 0 0)' },
             };
           })
         : fallbackEdges;
@@ -193,10 +193,10 @@ export default function TopGraphStrip({
       style: {
         ...node.style,
         border: openPopouts.has(node.id)
-          ? '2px solid oklch(0.72 0.14 270)'
-          : node.style?.border || '2px solid oklch(0.25 0.012 270)',
+          ? '2px solid oklch(0.6 0 0)'
+          : node.style?.border || '2px solid oklch(0.28 0 0)',
         boxShadow: openPopouts.has(node.id)
-          ? '0 0 12px oklch(0.72 0.14 270 / 0.4)'
+          ? '0 0 12px oklch(0.6 0 0 / 0.3)'
           : node.style?.boxShadow || 'none',
       },
     }));
@@ -307,9 +307,9 @@ export default function TopGraphStrip({
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        style={{ background: 'oklch(0.14 0.008 270)' }}
+        style={{ background: 'oklch(0.15 0 0)' }}
       >
-        <Background color="oklch(0.2 0.01 270)" gap={16} />
+        <Background color="oklch(0.22 0 0)" gap={16} />
       </ReactFlow>
 
       {Array.from(openPopouts.entries()).map(([nodeId, popout]) => {

@@ -8,10 +8,10 @@ export interface LaneConfig {
 }
 
 export const LANE_CONFIGS: LaneConfig[] = [
-  { id: "orchestrator", label: "Orchestrator", avatar: "🎯", role: "Moderator" },
-  { id: "debater-a", label: "Debater A", avatar: "🔵", role: "Proponent" },
-  { id: "debater-b", label: "Debater B", avatar: "🟢", role: "Opponent" },
-  { id: "debater-c", label: "Debater C", avatar: "🟡", role: "Synthesizer" },
+  { id: "orchestrator", label: "Orchestrator", avatar: "", role: "Moderator" },
+  { id: "debater-a", label: "Debater A", avatar: "", role: "Proponent" },
+  { id: "debater-b", label: "Debater B", avatar: "", role: "Opponent" },
+  { id: "debater-c", label: "Debater C", avatar: "", role: "Synthesizer" },
 ];
 
 export const AGENT_LANES: LaneId[] = ["debater-a", "debater-b", "debater-c"];

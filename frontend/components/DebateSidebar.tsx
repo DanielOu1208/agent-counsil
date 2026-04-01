@@ -30,10 +30,10 @@ export default function DebateSidebar({
 }: DebateSidebarProps) {
   const statusColor: Record<DebateStatus, string> = {
     idle: 'text-muted-foreground',
-    starting: 'text-yellow-400 animate-pulse',
-    running: 'text-green-400 animate-pulse',
-    completed: 'text-primary',
-    errored: 'text-red-400',
+    starting: 'text-foreground/70 animate-pulse',
+    running: 'text-foreground/70 animate-pulse',
+    completed: 'text-muted-foreground',
+    errored: 'text-red-400/80',
   };
 
   const statusLabel: Record<DebateStatus, string> = {
@@ -49,8 +49,8 @@ export default function DebateSidebar({
       {/* Header */}
       <div className="p-4">
         <div className="flex items-center gap-3">
-          <div className="size-9 flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-600">
-            <MessageSquare className="size-5 text-white" />
+          <div className="size-9 flex items-center justify-center bg-muted">
+            <MessageSquare className="size-5 text-foreground" />
           </div>
           <div>
             <h1 className="text-sm font-semibold text-foreground">Debate Arena</h1>
@@ -114,7 +114,7 @@ export default function DebateSidebar({
           {(status === 'running' || status === 'completed' || status === 'errored') && (
             <Button
               onClick={onFinalize}
-              className="w-full bg-blue-600 hover:bg-blue-500 text-white"
+              className="w-full bg-primary text-primary-foreground"
               disabled={disableFinalize}
             >
               <CheckCircle2 className="size-4" />

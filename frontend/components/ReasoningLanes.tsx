@@ -17,10 +17,10 @@ import {
 import { cn } from '@/lib/utils';
 
 const laneIcons: Record<LaneId, React.ReactNode> = {
-  orchestrator: <Sparkles className="size-3.5 text-primary" />,
-  'debater-a': <Shield className="size-3.5 text-blue-400" />,
-  'debater-b': <User className="size-3.5 text-green-400" />,
-  'debater-c': <Bot className="size-3.5 text-yellow-400" />,
+  orchestrator: <Sparkles className="size-3.5 text-muted-foreground" />,
+  'debater-a': <Shield className="size-3.5 text-muted-foreground" />,
+  'debater-b': <User className="size-3.5 text-muted-foreground" />,
+  'debater-c': <Bot className="size-3.5 text-muted-foreground" />,
 };
 
 interface ReasoningLanesProps {
@@ -75,16 +75,16 @@ export default function ReasoningLanes({
                           className={cn(
                             'size-1.5 flex-shrink-0',
                             isSpeaking
-                              ? 'text-green-400 fill-current animate-pulse'
+                              ? 'text-foreground/60 fill-current animate-pulse'
                               : 'text-muted-foreground'
                           )}
                         />
                       </div>
                       <div className="flex gap-1">
-                        <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-purple-500/20 text-purple-400 border-0">
+                        <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-muted text-muted-foreground border-0">
                           {modelLabel || 'No model'}
                         </Badge>
-                        <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-blue-500/20 text-blue-400 border-0">
+                        <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-muted text-muted-foreground border-0">
                           {personalityLabel || 'No personality'}
                         </Badge>
                       </div>
