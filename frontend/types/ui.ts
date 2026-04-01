@@ -57,6 +57,8 @@ export interface ApiPersonality {
   description?: string | null;
   personality: AgentPersonality;
   isUserCreated: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DebateGraphNode {

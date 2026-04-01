@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { ChevronDown, ChevronUp, Settings2, Sparkles, Shield, User, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from '@/components/ui/card';
@@ -32,6 +31,10 @@ interface SettingsPanelProps {
   onLaneSettingsChange: (laneId: LaneId, settings: LaneSettings) => void;
   modelOptions: ApiModel[];
   personalityOptions: ApiPersonality[];
+  onDragStart?: (event: React.PointerEvent<HTMLDivElement>) => void;
+  isDragging?: boolean;
+  isExpanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 }
 
 export default function SettingsPanel({
@@ -39,9 +42,11 @@ export default function SettingsPanel({
   onLaneSettingsChange,
   modelOptions,
   personalityOptions,
+  onDragStart,
+  isDragging = false,
+  isExpanded,
+  onExpandedChange,
 }: SettingsPanelProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
-
   const laneIcons: Record<LaneId, React.ReactNode> = {
     orchestrator: <Sparkles className="size-4 text-muted-foreground" />,
     'debater-a': <Shield className="size-4 text-muted-foreground" />,
@@ -50,25 +55,32 @@ export default function SettingsPanel({
   };
 
   return (
-    <Card className="bg-popover/95 backdrop-blur-sm w-60 max-h-[calc(100vh-120px)] border border-border shadow-xl">
-      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+    <Card className="bg-popover/95 backdrop-blur-sm flex w-60 min-h-0 flex-col border border-border shadow-xl">
+      <Collapsible open={isExpanded} onOpenChange={onExpandedChange}>
         <CollapsibleTrigger asChild>
-          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
+          <CardHeader
+            className="cursor-pointer hover:bg-muted/50 transition-colors py-3"
+            onPointerDown={onDragStart}
+          >
             <div className="flex items-center gap-2">
               <Settings2 className="size-4 text-primary" />
               <CardTitle className="text-sm">Configuration</CardTitle>
             </div>
             <CardAction>
-              <Button variant="ghost" size="icon-xs" className="pointer-events-none">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={isDragging ? 'pointer-events-none cursor-grabbing' : 'pointer-events-none'}
+              >
                 {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
               </Button>
             </CardAction>
           </CardHeader>
         </CollapsibleTrigger>
-        <CollapsibleContent>
+        <CollapsibleContent className="min-h-0">
           <Separator />
-          <CardContent className="p-2">
-            <ScrollArea className="max-h-[calc(100vh-200px)]">
+          <CardContent className="flex min-h-0 flex-1 p-2">
+            <ScrollArea className="h-full min-h-0 flex-1">
               <div className="flex flex-col gap-2">
                 {LANE_CONFIGS.map((lane) => {
                   const settings = laneSettings[lane.id];
