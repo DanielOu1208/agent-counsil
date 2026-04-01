@@ -33,7 +33,7 @@ export default function SettingsPanel({
   const [isExpanded, setIsExpanded] = useState(true);
 
   return (
-    <Card className="bg-popover/95 backdrop-blur-sm w-58 max-h-[calc(100vh-120px)] border border-border shadow-xl">
+    <Card className="bg-popover/95 backdrop-blur-sm w-60 max-h-[calc(100vh-120px)] border border-border shadow-xl">
       <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
         <CollapsibleTrigger asChild>
           <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
