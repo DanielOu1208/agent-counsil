@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0c0c0f;
+  --foreground: #d4d4d8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* React Flow custom styles for dark theme */
+.react-flow__background {
+  background-color: #111116 !important;
+}
+
+.react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: #111116 !important;
+  border-color: #1e1e24 !important;
+  color: #d4d4d8 !important;
+  fill: #d4d4d8 !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #1e1e24 !important;
+}
+
+.react-flow__minimap {
+  background: #111116 !important;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+.react-flow__edge.animated path {
+  stroke-dasharray: 5;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+@keyframes dashdraw {
+  from {
+    stroke-dashoffset: 10;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e1e24;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2a2a34;
+}
+
+/* Selection highlight */
+::selection {
+  background: rgba(137, 180, 250, 0.3);
+}
+
+/* Remove default focus outline and add custom */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid #89b4fa;
+  outline-offset: 2px;
+}
