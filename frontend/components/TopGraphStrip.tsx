@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState, useRef, type MouseEvent } from 'react';
-import ReactFlow, { Background, Edge, Node } from 'reactflow';
+import ReactFlow, { Background, Edge, Node, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { X, GripVertical, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -88,44 +88,84 @@ export default function TopGraphStrip({
 
   const { flowNodes, flowEdges, nodeDetails } = useMemo(() => {
     const sortedNodes = [...graphNodes].sort((a, b) => {
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return a.id.localeCompare(b.id);
     });
 
-    const laneRowIndex = new Map(LANE_CONFIGS.map((lane, index) => [lane.id, index]));
     const nodesById = new Map(sortedNodes.map((node) => [node.id, node]));
-    const depthByNodeId = new Map<string, number>();
+    const laneRowIndex = new Map(LANE_CONFIGS.map((lane, index) => [lane.id, index]));
 
-    const getDepth = (nodeId: string): number => {
-      const cached = depthByNodeId.get(nodeId);
-      if (cached !== undefined) return cached;
+    const edgeRelationKey = (edge: {
+      fromNodeId: string;
+      toNodeId: string;
+      edgeType: DebateGraphEdge['edgeType'];
+    }) => `${edge.fromNodeId}|${edge.toNodeId}|${edge.edgeType}`;
 
-      const node = nodesById.get(nodeId);
-      if (!node?.parentNodeId || !nodesById.has(node.parentNodeId)) {
-        depthByNodeId.set(nodeId, 0);
-        return 0;
-      }
+    const relationKeySet = new Set<string>();
+    const pairKeySet = new Set<string>();
+    const mergedEdges: DebateGraphEdge[] = [];
 
-      const depth = getDepth(node.parentNodeId) + 1;
-      depthByNodeId.set(nodeId, depth);
-      return depth;
-    };
+    for (const edge of graphEdges) {
+      const key = edgeRelationKey(edge);
+      const pairKey = `${edge.fromNodeId}|${edge.toNodeId}`;
+      if (relationKeySet.has(key)) continue;
+      relationKeySet.add(key);
+      pairKeySet.add(pairKey);
+      mergedEdges.push(edge);
+    }
 
-    const laneDepthOffsets = new Map<string, number>();
+    for (const node of sortedNodes) {
+      if (!node.parentNodeId) continue;
+      const fallbackEdge: DebateGraphEdge = {
+        id: `fallback-${node.parentNodeId}-${node.id}`,
+        fromNodeId: node.parentNodeId,
+        toNodeId: node.id,
+        edgeType: 'spawned_by_orchestrator',
+      };
+      const pairKey = `${fallbackEdge.fromNodeId}|${fallbackEdge.toNodeId}`;
+      if (pairKeySet.has(pairKey)) continue;
+      const key = edgeRelationKey(fallbackEdge);
+      if (relationKeySet.has(key)) continue;
+      relationKeySet.add(key);
+      pairKeySet.add(pairKey);
+      mergedEdges.push(fallbackEdge);
+    }
+
+    const parentsByNodeId = new Map<string, string[]>();
+    for (const edge of mergedEdges) {
+      const list = parentsByNodeId.get(edge.toNodeId) ?? [];
+      list.push(edge.fromNodeId);
+      parentsByNodeId.set(edge.toNodeId, list);
+    }
+
+    const columnByNodeId = new Map<string, number>();
+    for (const node of sortedNodes) {
+      const parentIds = (parentsByNodeId.get(node.id) ?? []).filter((parentId) =>
+        columnByNodeId.has(parentId),
+      );
+      const column =
+        parentIds.length > 0
+          ? Math.max(...parentIds.map((parentId) => (columnByNodeId.get(parentId) ?? 0) + 1))
+          : 0;
+      columnByNodeId.set(node.id, column);
+    }
+
+    const laneColumnOffsets = new Map<string, number>();
     const nextFlowNodes: Node[] = [];
     const details: Record<string, NodeDetails> = {};
 
     for (const node of sortedNodes) {
       const laneId = resolveLane(node);
       const laneIndex = laneRowIndex.get(laneId) ?? 0;
-      const depth = getDepth(node.id);
+      const column = columnByNodeId.get(node.id) ?? 0;
 
-      const laneDepthKey = `${laneId}:${depth}`;
-      const offsetInLaneDepth = laneDepthOffsets.get(laneDepthKey) ?? 0;
-      laneDepthOffsets.set(laneDepthKey, offsetInLaneDepth + 1);
+      const laneColumnKey = `${laneId}:${column}`;
+      const offsetInLaneColumn = laneColumnOffsets.get(laneColumnKey) ?? 0;
+      laneColumnOffsets.set(laneColumnKey, offsetInLaneColumn + 1);
 
       const title = getNodeTitle(node);
       const laneLabel = LANE_CONFIGS.find((lane) => lane.id === laneId)?.label ?? 'Unknown';
-
       details[node.id] = {
         title,
         lane: laneLabel,
@@ -136,9 +176,11 @@ export default function TopGraphStrip({
         id: node.id,
         type: 'default',
         position: {
-          x: 90 + depth * 290,
-          y: 50 + laneIndex * 165 + offsetInLaneDepth * 22,
+          x: 90 + column * 320,
+          y: 50 + laneIndex * 185 + offsetInLaneColumn * 38,
         },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
         data: { label: getNodeLabel(node) },
         style: {
           background: 'oklch(0.15 0 0)',
@@ -160,29 +202,19 @@ export default function TopGraphStrip({
       });
     }
 
-    const fallbackEdges: Edge[] = sortedNodes
-      .filter((node) => node.parentNodeId)
-      .map((node) => ({
-        id: `parent-${node.parentNodeId}-${node.id}`,
-        source: node.parentNodeId as string,
-        target: node.id,
-        animated: node.status === 'streaming',
-        style: { stroke: 'oklch(0.28 0 0)' },
-      }));
-
-    const nextFlowEdges: Edge[] =
-      graphEdges.length > 0
-        ? graphEdges.map((edge) => {
-            const targetNode = nodesById.get(edge.toNodeId);
-            return {
-              id: edge.id,
-              source: edge.fromNodeId,
-              target: edge.toNodeId,
-              animated: targetNode?.status === 'streaming',
-              style: { stroke: 'oklch(0.28 0 0)' },
-            };
-          })
-        : fallbackEdges;
+    const nextFlowEdges: Edge[] = mergedEdges
+      .filter((edge) => nodesById.has(edge.fromNodeId) && nodesById.has(edge.toNodeId))
+      .map((edge) => {
+        const targetNode = nodesById.get(edge.toNodeId);
+        return {
+          id: edge.id,
+          source: edge.fromNodeId,
+          target: edge.toNodeId,
+          type: 'smoothstep',
+          animated: targetNode?.status === 'streaming',
+          style: { stroke: 'oklch(0.28 0 0)' },
+        };
+      });
 
     return { flowNodes: nextFlowNodes, flowEdges: nextFlowEdges, nodeDetails: details };
   }, [graphNodes, graphEdges, resolveLane]);

@@ -47,6 +47,30 @@ export async function handleIntervention(params: InterventionParams): Promise<{ 
       createdAt: now,
     });
 
+  if (nodeId) {
+    const edgeId = uuid();
+    await db.insert(edges)
+      .values({
+        id: edgeId,
+        debateId,
+        branchId: debate.activeBranchId ?? "",
+        fromNodeId: nodeId,
+        toNodeId: interventionNodeId,
+        edgeType: "responds_to",
+        createdAt: now,
+      });
+
+    emitDebateEvent(debateId, {
+      type: "edge:created",
+      data: {
+        edgeId,
+        fromNodeId: nodeId,
+        toNodeId: interventionNodeId,
+        edgeType: "responds_to",
+      },
+    });
+  }
+
   emitDebateEvent(debateId, {
     type: "node:created",
     data: {
@@ -54,6 +78,15 @@ export async function handleIntervention(params: InterventionParams): Promise<{ 
       speakerType: "user",
       nodeType: "intervention",
       parentNodeId: nodeId,
+      createdAt: now,
+    },
+  });
+
+  emitDebateEvent(debateId, {
+    type: "node:complete",
+    data: {
+      nodeId: interventionNodeId,
+      content: `[${interventionType}] ${instruction}`,
     },
   });
 

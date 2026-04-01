@@ -18,6 +18,7 @@ interface ExecuteJobParams {
   nodeType: NodeType;
   parentNodeId?: string;
   edgeType: EdgeType;
+  onNodeCreated?: (nodeId: string) => Promise<void> | void;
 }
 
 export interface JobResult {
@@ -39,6 +40,7 @@ export async function executeAgentJob(params: ExecuteJobParams): Promise<JobResu
     nodeType,
     parentNodeId,
     edgeType,
+    onNodeCreated,
   } = params;
 
   const now = new Date().toISOString();
@@ -78,9 +80,10 @@ export async function executeAgentJob(params: ExecuteJobParams): Promise<JobResu
 
   // Create edge from parent to this node
   if (parentNodeId) {
+    const edgeId = uuid();
     await db.insert(edges)
       .values({
-        id: uuid(),
+        id: edgeId,
         debateId,
         branchId,
         fromNodeId: parentNodeId,
@@ -88,13 +91,27 @@ export async function executeAgentJob(params: ExecuteJobParams): Promise<JobResu
         edgeType,
         createdAt: now,
       });
+
+    emitDebateEvent(debateId, {
+      type: "edge:created",
+      data: {
+        edgeId,
+        fromNodeId: parentNodeId,
+        toNodeId: nodeId,
+        edgeType,
+      },
+    });
   }
 
   // Emit node:created event
   emitDebateEvent(debateId, {
     type: "node:created",
-    data: { nodeId, speakerType, speakerId: agentId, nodeType, parentNodeId },
+    data: { nodeId, speakerType, speakerId: agentId, nodeType, parentNodeId, createdAt: now },
   });
+
+  if (onNodeCreated) {
+    await onNodeCreated(nodeId);
+  }
 
   // Mark job as running
   await db.update(agentJobs)

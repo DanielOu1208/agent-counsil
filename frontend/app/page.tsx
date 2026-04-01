@@ -24,7 +24,7 @@ import {
   ReasoningMessage,
 } from '@/types/ui';
 
-const FALLBACK_MODEL_KEY = 'mock:mock-default';
+const FALLBACK_MODEL_KEY = 'gemini:gemini-2.5-flash-lite';
 
 const INITIAL_LANE_SETTINGS: Record<LaneId, LaneSettings> = {
   orchestrator: { modelKey: '', personalityId: '' },
@@ -46,6 +46,7 @@ type CreateEventPayload = {
   speakerId?: string;
   nodeType: 'message' | 'summary' | 'final' | 'intervention' | 'regen_root';
   parentNodeId?: string;
+  createdAt?: string;
 };
 
 type ChunkEventPayload = {
@@ -57,6 +58,27 @@ type CompleteEventPayload = {
   nodeId: string;
   content: string;
 };
+
+type EdgeCreatedEventPayload = {
+  edgeId?: string;
+  fromNodeId: string;
+  toNodeId: string;
+  edgeType: 'responds_to' | 'criticizes' | 'supports' | 'summarizes' | 'regenerated_from' | 'spawned_by_orchestrator';
+};
+
+function toEdgeRelationKey(edge: {
+  fromNodeId: string;
+  toNodeId: string;
+  edgeType:
+    | 'responds_to'
+    | 'criticizes'
+    | 'supports'
+    | 'summarizes'
+    | 'regenerated_from'
+    | 'spawned_by_orchestrator';
+}): string {
+  return `${edge.fromNodeId}|${edge.toNodeId}|${edge.edgeType}`;
+}
 
 function parseEventData<T>(event: Event): T | null {
   if (!(event instanceof MessageEvent) || typeof event.data !== 'string') {
@@ -193,27 +215,10 @@ export default function Home() {
               content: '',
               status: 'streaming',
               metadata: null,
-              createdAt: new Date().toISOString(),
+              createdAt: payload.createdAt ?? new Date().toISOString(),
             },
           ];
         });
-
-        const parentNodeId = payload.parentNodeId;
-        if (parentNodeId) {
-          setGraphEdges((prev) => {
-            const id = `local-${parentNodeId}-${payload.nodeId}`;
-            if (prev.some((edge) => edge.id === id)) return prev;
-            return [
-              ...prev,
-              {
-                id,
-                fromNodeId: parentNodeId,
-                toNodeId: payload.nodeId,
-                edgeType: 'spawned_by_orchestrator',
-              },
-            ];
-          });
-        }
       });
 
       source.addEventListener('node:chunk', (event) => {
@@ -250,11 +255,30 @@ export default function Home() {
         );
       });
 
+      source.addEventListener('edge:created', (event) => {
+        const payload = parseEventData<EdgeCreatedEventPayload>(event);
+        if (!payload) return;
+
+        setGraphEdges((prev) => {
+          const relationKey = toEdgeRelationKey(payload);
+          if (prev.some((edge) => toEdgeRelationKey(edge) === relationKey)) return prev;
+
+          const id = payload.edgeId ?? `edge-${payload.fromNodeId}-${payload.toNodeId}-${payload.edgeType}`;
+          return [
+            ...prev,
+            {
+              id,
+              fromNodeId: payload.fromNodeId,
+              toNodeId: payload.toNodeId,
+              edgeType: payload.edgeType,
+            },
+          ];
+        });
+      });
+
       source.addEventListener('run:complete', () => {
         setStatus('completed');
-        refreshGraph(targetDebateId).catch((error) => {
-          console.error('Failed to refresh graph after completion:', error);
-        });
+        // No need to refresh - SSE stream already has all nodes/edges
       });
 
       source.addEventListener('run:error', () => {

@@ -1,8 +1,9 @@
 import { v4 as uuid } from "uuid";
 import { db } from "../../db/client.js";
-import { agents, nodes, edges } from "../../db/schema.js";
+import { agents, nodes, edges, debateBranches } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { executeAgentJob, type JobResult } from "./jobs.js";
+import { emitDebateEvent } from "../events.js";
 import {
   buildOpeningContext,
   buildCritiqueContext,
@@ -39,6 +40,12 @@ export async function runOpeningPhase(params: PhaseParams): Promise<JobResult[]>
   const { debateId, branchId, runId, goal } = params;
   const debateAgents = await getDebateAgents(debateId);
 
+  const [branch] = await db
+    .select()
+    .from(debateBranches)
+    .where(eq(debateBranches.id, branchId));
+  const branchRootNodeId = branch?.rootNodeId ?? null;
+
   // Create root orchestrator node for this phase
   const rootNodeId = uuid();
   const now = new Date().toISOString();
@@ -47,7 +54,7 @@ export async function runOpeningPhase(params: PhaseParams): Promise<JobResult[]>
       id: rootNodeId,
       debateId,
       branchId,
-      parentNodeId: null,
+      parentNodeId: branchRootNodeId,
       speakerType: "orchestrator",
       speakerId: null,
       nodeType: "message",
@@ -55,6 +62,52 @@ export async function runOpeningPhase(params: PhaseParams): Promise<JobResult[]>
       status: "complete",
       createdAt: now,
     });
+
+  if (branchRootNodeId) {
+    const edgeId = uuid();
+    await db.insert(edges)
+      .values({
+        id: edgeId,
+        debateId,
+        branchId,
+        fromNodeId: branchRootNodeId,
+        toNodeId: rootNodeId,
+        edgeType: "spawned_by_orchestrator",
+        createdAt: now,
+      });
+
+    emitDebateEvent(debateId, {
+      type: "edge:created",
+      data: {
+        edgeId,
+        fromNodeId: branchRootNodeId,
+        toNodeId: rootNodeId,
+        edgeType: "spawned_by_orchestrator",
+      },
+    });
+  }
+
+  // Emit node:created event so frontend sees the root node
+  emitDebateEvent(debateId, {
+    type: "node:created",
+    data: {
+      nodeId: rootNodeId,
+      speakerType: "orchestrator",
+      speakerId: undefined,
+      nodeType: "message",
+      parentNodeId: branchRootNodeId ?? undefined,
+      createdAt: now,
+    },
+  });
+
+  // Emit node:complete since this node is already complete
+  emitDebateEvent(debateId, {
+    type: "node:complete",
+    data: {
+      nodeId: rootNodeId,
+      content: `Opening phase: Each agent provides their independent recommendation on "${goal}"`,
+    },
+  });
 
   // Execute all agent jobs in parallel
   const jobPromises = debateAgents.map((agent) => {
@@ -235,8 +288,8 @@ export async function runFinalPhase(
 
   const messages = buildSynthesisContext(goal, convergencePositions);
 
-  // Use the synthesis model from env, fallback to first available
-  const synthesisModel = process.env.SYNTHESIS_MODEL ?? "openai:gpt-4o";
+  // Use the synthesis model from env, fallback to Gemini 2.5 Flash Lite
+  const synthesisModel = process.env.SYNTHESIS_MODEL ?? "gemini:gemini-2.5-flash-lite";
 
   const result = await executeAgentJob({
     runId,
@@ -250,6 +303,37 @@ export async function runFinalPhase(
     nodeType: "final",
     parentNodeId: convergenceResults[0]?.nodeId,
     edgeType: "summarizes",
+    onNodeCreated: async (finalNodeId) => {
+      if (convergenceResults.length < 2) return;
+
+      const now = new Date().toISOString();
+      for (let i = 1; i < convergenceResults.length; i++) {
+        const convergenceNodeId = convergenceResults[i]?.nodeId;
+        if (!convergenceNodeId) continue;
+
+        const edgeId = uuid();
+        await db.insert(edges)
+          .values({
+            id: edgeId,
+            debateId,
+            branchId,
+            fromNodeId: convergenceNodeId,
+            toNodeId: finalNodeId,
+            edgeType: "summarizes",
+            createdAt: now,
+          });
+
+        emitDebateEvent(debateId, {
+          type: "edge:created",
+          data: {
+            edgeId,
+            fromNodeId: convergenceNodeId,
+            toNodeId: finalNodeId,
+            edgeType: "summarizes",
+          },
+        });
+      }
+    },
   });
 
   return result;
