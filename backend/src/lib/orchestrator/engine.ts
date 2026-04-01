@@ -4,8 +4,6 @@ import { eq } from "drizzle-orm";
 import { emitDebateEvent } from "../events.js";
 import {
   runOpeningPhase,
-  runCritiquePhase,
-  runConvergencePhase,
   runFinalPhase,
 } from "./phases.js";
 import type { RunPhase, RunStatus } from "../../types.js";
@@ -47,32 +45,14 @@ export async function runDebate(debateId: string, runId: string): Promise<void> 
       throw new Error("No agents completed the opening phase");
     }
 
-    // ── Phase 2: Critique ─────────────────────────────────
-    await updateRunPhase(runId, "critique", "running");
-    emitDebateEvent(debateId, {
-      type: "phase:changed",
-      data: { phase: "critique", runId },
-    });
-
-    const critiqueResults = await runCritiquePhase(phaseParams, openingResults);
-
-    // ── Phase 3: Convergence ──────────────────────────────
-    await updateRunPhase(runId, "convergence", "running");
-    emitDebateEvent(debateId, {
-      type: "phase:changed",
-      data: { phase: "convergence", runId },
-    });
-
-    const convergenceResults = await runConvergencePhase(phaseParams, critiqueResults);
-
-    // ── Phase 4: Final Synthesis ──────────────────────────
+    // ── Phase 2: Final Synthesis ──────────────────────────
     await updateRunPhase(runId, "final", "running");
     emitDebateEvent(debateId, {
       type: "phase:changed",
       data: { phase: "final", runId },
     });
 
-    const finalResult = await runFinalPhase(phaseParams, convergenceResults);
+    const finalResult = await runFinalPhase(phaseParams, openingResults);
 
     // ── Mark completed ────────────────────────────────────
     await updateRunPhase(runId, "final", "completed");
