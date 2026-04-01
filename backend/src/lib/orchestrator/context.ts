@@ -5,6 +5,8 @@ import {
   critiquePrompt,
   convergencePrompt,
   finalSynthesisPrompt,
+  continuationOpeningPrompt,
+  continuationSynthesisPrompt,
 } from "./prompts.js";
 
 interface AgentRecord {
@@ -65,5 +67,37 @@ export function buildSynthesisContext(
         "You are a debate synthesis engine. Your job is to analyze the final positions of all debate agents and produce a clear, decisive final recommendation with a summary of the key arguments.",
     },
     { role: "user", content: finalSynthesisPrompt(goal, convergenceNodes) },
+  ];
+}
+
+// ─── Continuation Context Builders ─────────────────────────
+
+export function buildContinuationOpeningContext(
+  goal: string,
+  userFollowUp: string,
+  agent: AgentRecord,
+  priorPositions: { agentName: string; content: string }[],
+  priorSynthesis: string,
+): ChatMessage[] {
+  const personality: AgentPersonality = JSON.parse(agent.personalityJson);
+  return [
+    { role: "system", content: personalityToSystemPrompt(personality) },
+    { role: "user", content: continuationOpeningPrompt(goal, userFollowUp, priorPositions, priorSynthesis) },
+  ];
+}
+
+export function buildContinuationSynthesisContext(
+  goal: string,
+  userFollowUp: string,
+  priorSynthesis: string,
+  newPositions: { agentName: string; content: string }[],
+): ChatMessage[] {
+  return [
+    {
+      role: "system",
+      content:
+        "You are a debate synthesis engine. Your job is to analyze the agents' updated positions after a follow-up question and produce a clear, decisive recommendation that builds on the prior discussion.",
+    },
+    { role: "user", content: continuationSynthesisPrompt(goal, userFollowUp, priorSynthesis, newPositions) },
   ];
 }
