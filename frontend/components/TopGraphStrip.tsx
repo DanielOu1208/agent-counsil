@@ -210,7 +210,7 @@ export default function TopGraphStrip({
           id: edge.id,
           source: edge.fromNodeId,
           target: edge.toNodeId,
-          type: 'smoothstep',
+          type: 'straight',
           animated: targetNode?.status === 'streaming',
           style: { stroke: 'oklch(0.28 0 0)' },
         };
@@ -336,7 +336,7 @@ export default function TopGraphStrip({
         zoomOnPinch
         zoomOnDoubleClick={false}
         preventScrolling
-        nodesDraggable={false}
+        nodesDraggable
         nodesConnectable={false}
         elementsSelectable
         style={{ background: 'oklch(0.15 0 0)' }}
