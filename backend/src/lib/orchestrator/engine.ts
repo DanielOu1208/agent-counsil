@@ -92,6 +92,7 @@ export async function runDebate(debateId: string, runId: string): Promise<void> 
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error(`Debate ${debateId} failed:`, errMsg);
+    if (error instanceof Error && error.stack) console.error(error.stack);
 
     await updateRunPhase(runId, run.phase as RunPhase, "errored");
 

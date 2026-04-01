@@ -3,16 +3,16 @@ import type { AgentPersonality, ChatMessage } from "../../types.js";
 // ─── Personality → System Prompt ───────────────────────────
 export function personalityToSystemPrompt(p: AgentPersonality): string {
   const lines = [
-    `You are ${p.name}, a ${p.role}.`,
-    `Tone: ${p.tone}.`,
-    `Goal: ${p.goal}.`,
-    `Worldview: ${p.worldview}.`,
-    `Debate style: ${p.debateStyle}.`,
-    `Risk tolerance: ${p.riskTolerance}.`,
-    `Verbosity: ${p.verbosity} — keep your responses ${p.verbosity} in length.`,
-    `Preferred output format: ${p.preferredOutputFormat}.`,
+    `You are ${p.name ?? "an AI agent"}, a ${p.role ?? "debate participant"}.`,
   ];
-  if (p.constraints.length > 0) {
+  if (p.tone) lines.push(`Tone: ${p.tone}.`);
+  if (p.goal) lines.push(`Goal: ${p.goal}.`);
+  if (p.worldview) lines.push(`Worldview: ${p.worldview}.`);
+  if (p.debateStyle) lines.push(`Debate style: ${p.debateStyle}.`);
+  if (p.riskTolerance) lines.push(`Risk tolerance: ${p.riskTolerance}.`);
+  if (p.verbosity) lines.push(`Verbosity: ${p.verbosity} — keep your responses ${p.verbosity} in length.`);
+  if (p.preferredOutputFormat) lines.push(`Preferred output format: ${p.preferredOutputFormat}.`);
+  if (p.constraints && p.constraints.length > 0) {
     lines.push(`Constraints:\n${p.constraints.map((c) => `- ${c}`).join("\n")}`);
   }
   if (p.customInstructions) {

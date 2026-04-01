@@ -43,9 +43,8 @@ export function getModelAdapter(modelKey: string): ModelAdapter {
 export const AVAILABLE_MODELS = [
   { key: "openai:gpt-4o", label: "GPT-4o", provider: "openai" },
   { key: "openai:gpt-4o-mini", label: "GPT-4o Mini", provider: "openai" },
-  { key: "gemini:gemini-1.5-pro", label: "Gemini 1.5 Pro", provider: "gemini" },
-  { key: "gemini:gemini-1.5-flash", label: "Gemini 1.5 Flash", provider: "gemini" },
-  { key: "gemini:gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "gemini" },
+  { key: "gemini:gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "gemini" },
+  { key: "gemini:gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "gemini" },
   { key: "mock:mock-default", label: "Mock (Default)", provider: "mock" },
   { key: "mock:mock-fast", label: "Mock (Fast)", provider: "mock" },
 ];
