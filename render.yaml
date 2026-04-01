@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: agent-council-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run db:push
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SYNTHESIS_MODEL
+        value: gemini:gemini-2.0-flash
+      - key: FRONTEND_URL
+        sync: false
