@@ -134,6 +134,26 @@ export default function Home() {
   const [agentLaneById, setAgentLaneById] = useState<Record<string, LaneId>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
 
+  const handlePersonalityGenerated = useCallback(
+    (personality: ApiPersonality, targetLaneId: LaneId) => {
+      setPersonalityOptions((prev) => {
+        if (prev.some((existing) => existing.id === personality.id)) {
+          return prev;
+        }
+        return [...prev, personality];
+      });
+
+      setLaneSettings((prev) => ({
+        ...prev,
+        [targetLaneId]: {
+          ...prev[targetLaneId],
+          personalityId: personality.id,
+        },
+      }));
+    },
+    [],
+  );
+
   const resolveLaneForNode = useCallback(
     (node: DebateGraphNode): LaneId => {
       if (node.speakerType === 'agent' && node.speakerId) {
@@ -448,6 +468,7 @@ export default function Home() {
     <AppShell
       laneSettings={laneSettings}
       onLaneSettingsChange={handleLaneSettingsChange}
+      onPersonalityGenerated={handlePersonalityGenerated}
       modelOptions={modelOptions}
       personalityOptions={personalityOptions}
       messages={messages}

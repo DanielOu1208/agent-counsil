@@ -50,6 +50,16 @@ export function fetchPersonalities(): Promise<ApiPersonality[]> {
   return request<ApiPersonality[]>("/api/personalities");
 }
 
+export function generatePersonality(input: {
+  brief: string;
+  modelKey: string;
+}): Promise<ApiPersonality> {
+  return request<ApiPersonality>("/api/personalities/generate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function createDebate(input: {
   title: string;
   goal: string;
