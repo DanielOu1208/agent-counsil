@@ -21,6 +21,12 @@ type CreateDebateResponse = {
   agents: Array<{ id: string; name: string; modelKey: string }>;
 };
 
+type ContinueAgentOverride = {
+  laneId: "debater-a" | "debater-b" | "debater-c";
+  modelKey: string;
+  personalityJson: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -81,10 +87,11 @@ export function startDebate(debateId: string): Promise<{ runId: string; status: 
 export function continueDebate(
   debateId: string,
   prompt: string,
+  agentOverrides?: ContinueAgentOverride[],
 ): Promise<{ runId: string; status: string }> {
   return request<{ runId: string; status: string }>(`/api/debates/${debateId}/continue`, {
     method: "POST",
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, agentOverrides }),
   });
 }
 

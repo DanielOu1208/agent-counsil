@@ -31,8 +31,6 @@ interface SettingsPanelProps {
   onLaneSettingsChange: (laneId: LaneId, settings: LaneSettings) => void;
   modelOptions: ApiModel[];
   personalityOptions: ApiPersonality[];
-  onDragStart?: (event: React.PointerEvent<HTMLDivElement>) => void;
-  isDragging?: boolean;
   isExpanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
 }
@@ -42,8 +40,6 @@ export default function SettingsPanel({
   onLaneSettingsChange,
   modelOptions,
   personalityOptions,
-  onDragStart,
-  isDragging = false,
   isExpanded,
   onExpandedChange,
 }: SettingsPanelProps) {
@@ -58,20 +54,13 @@ export default function SettingsPanel({
     <Card className="bg-popover/95 backdrop-blur-sm flex w-60 min-h-0 flex-col border border-border shadow-xl">
       <Collapsible open={isExpanded} onOpenChange={onExpandedChange}>
         <CollapsibleTrigger asChild>
-          <CardHeader
-            className="cursor-pointer hover:bg-muted/50 transition-colors py-3"
-            onPointerDown={onDragStart}
-          >
+          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
             <div className="flex items-center gap-2">
               <Settings2 className="size-4 text-primary" />
               <CardTitle className="text-sm">Configuration</CardTitle>
             </div>
             <CardAction>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className={isDragging ? 'pointer-events-none cursor-grabbing' : 'pointer-events-none'}
-              >
+              <Button variant="ghost" size="icon-xs" className="pointer-events-none">
                 {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
               </Button>
             </CardAction>

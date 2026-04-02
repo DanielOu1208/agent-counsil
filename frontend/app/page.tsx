@@ -110,6 +110,8 @@ function deriveTitle(goal: string): string {
   return `${normalized.slice(0, 67)}...`;
 }
 
+type ContinueLaneId = 'debater-a' | 'debater-b' | 'debater-c';
+
 export default function Home() {
   const [status, setStatus] = useState<DebateStatus>('idle');
   const [debateId, setDebateId] = useState<string | null>(null);
@@ -135,25 +137,38 @@ export default function Home() {
   const [agentLaneById, setAgentLaneById] = useState<Record<string, LaneId>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const handlePersonalityGenerated = useCallback(
-    (personality: ApiPersonality, targetLaneId: LaneId) => {
-      setPersonalityOptions((prev) => {
-        if (prev.some((existing) => existing.id === personality.id)) {
-          return prev;
-        }
-        return [...prev, personality];
-      });
+  const handlePersonalityGenerated = useCallback((personality: ApiPersonality) => {
+    setPersonalityOptions((prev) => {
+      if (prev.some((existing) => existing.id === personality.id)) {
+        return prev;
+      }
+      return [...prev, personality];
+    });
+  }, []);
 
-      setLaneSettings((prev) => ({
-        ...prev,
-        [targetLaneId]: {
-          ...prev[targetLaneId],
-          personalityId: personality.id,
-        },
-      }));
-    },
-    [],
-  );
+  const buildContinueAgentOverrides = useCallback(() => {
+    const personalityById = new Map(
+      personalityOptions.map((personality) => [personality.id, personality]),
+    );
+
+    return AGENT_LANES.flatMap((laneId) => {
+      const laneState = laneSettings[laneId];
+      if (!laneState?.modelKey || !laneState?.personalityId) {
+        return [];
+      }
+
+      const personality = personalityById.get(laneState.personalityId);
+      if (!personality) {
+        return [];
+      }
+
+      return [{
+        laneId: laneId as ContinueLaneId,
+        modelKey: laneState.modelKey,
+        personalityJson: JSON.stringify(personality.personality),
+      }];
+    });
+  }, [laneSettings, personalityOptions]);
 
   const resolveLaneForNode = useCallback(
     (node: DebateGraphNode): LaneId => {
@@ -441,7 +456,12 @@ export default function Home() {
 
         if (status === 'completed') {
           setStatus('running');
-          await continueDebate(debateId, trimmed);
+          const agentOverrides = buildContinueAgentOverrides();
+          await continueDebate(
+            debateId,
+            trimmed,
+            agentOverrides.length > 0 ? agentOverrides : undefined,
+          );
           return;
         }
 
@@ -454,7 +474,7 @@ export default function Home() {
         setStatus('errored');
       }
     },
-    [closeStream, debateId, refreshGraph, startNewDebate, status],
+    [buildContinueAgentOverrides, closeStream, debateId, refreshGraph, startNewDebate, status],
   );
 
   const handleFinalize = useCallback(async () => {

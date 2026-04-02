@@ -14,6 +14,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { runDebate, continueDebate } from "../lib/orchestrator/engine.js";
 import { handleIntervention } from "../lib/orchestrator/intervention.js";
 import { regenerateFromNode } from "../lib/orchestrator/regenerate.js";
+import { AVAILABLE_MODELS } from "../lib/models/registry.js";
 
 const app = new Hono();
 
@@ -51,6 +52,21 @@ const interveneSchema = z.object({
 const regenerateSchema = z.object({
   reason: z.string().optional(),
   branchLabel: z.string().optional(),
+});
+
+const personalitySchema = z.object({
+  name: z.string(),
+  role: z.string(),
+  tone: z.string(),
+  goal: z.string(),
+  worldview: z.string(),
+  debateStyle: z.string(),
+  riskTolerance: z.enum(["low", "medium", "high"]),
+  verbosity: z.enum(["short", "medium", "long"]),
+  preferredOutputFormat: z.string(),
+  constraints: z.array(z.string()),
+  customInstructions: z.string(),
+  avatarSeed: z.string().optional(),
 });
 
 // ─── POST /api/debates — create a new debate ────────────────
@@ -289,6 +305,22 @@ app.post("/:id/start", async (c) => {
 
 const continueSchema = z.object({
   prompt: z.string().min(1).max(5000),
+  agentOverrides: z.array(
+    z.object({
+      laneId: z.enum(["debater-a", "debater-b", "debater-c"]),
+      modelKey: z.string().min(1).refine(
+        (value) => AVAILABLE_MODELS.some((model) => model.key === value),
+        { message: "Unknown model key" },
+      ),
+      personalityJson: z.string().refine((value) => {
+        try {
+          return personalitySchema.safeParse(JSON.parse(value)).success;
+        } catch {
+          return false;
+        }
+      }, { message: "Invalid personalityJson payload" }),
+    }),
+  ).max(3).optional(),
 });
 
 app.post("/:id/continue", async (c) => {
@@ -304,6 +336,36 @@ app.post("/:id/continue", async (c) => {
   if (debate.status === "running") return c.json({ error: "Debate is already running" }, 409);
   if (debate.status !== "completed") {
     return c.json({ error: "Debate must be completed before continuing" }, 400);
+  }
+
+  if (parsed.data.agentOverrides && parsed.data.agentOverrides.length > 0) {
+    const laneOrder = ["debater-a", "debater-b", "debater-c"] as const;
+    const laneIndexById = new Map(laneOrder.map((laneId, index) => [laneId, index]));
+    const debateAgents = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.debateId, id))
+      .orderBy(agents.displayOrder);
+
+    const overridesByLane = new Map(
+      parsed.data.agentOverrides.map((override) => [override.laneId, override]),
+    );
+
+    for (const [laneId, override] of overridesByLane) {
+      const displayOrder = laneIndexById.get(laneId);
+      const targetAgent = displayOrder !== undefined ? debateAgents[displayOrder] : undefined;
+
+      if (!targetAgent) {
+        return c.json({ error: `No agent found for lane ${laneId}` }, 400);
+      }
+
+      await db.update(agents)
+        .set({
+          modelKey: override.modelKey,
+          personalityJson: override.personalityJson,
+        })
+        .where(eq(agents.id, targetAgent.id));
+    }
   }
 
   const branchId = debate.activeBranchId!;
