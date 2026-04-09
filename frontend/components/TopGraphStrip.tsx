@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, useRef, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import ReactFlow, { Background, Edge, Node, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { X, GripVertical, MessageSquare } from 'lucide-react';
@@ -11,16 +11,27 @@ import { Separator } from '@/components/ui/separator';
 import { MarkdownContent } from '@/components/MarkdownContent';
 import { DebateGraphEdge, DebateGraphNode, LaneConfig, LaneId } from '@/types/ui';
 
-interface OpenPopout {
-  id: string;
+interface PopoutLayout {
   x: number;
   y: number;
+  width: number;
+  height: number;
 }
 
 interface NodeDetails {
   title: string;
   lane: string;
   content: string;
+}
+
+interface PopoutCardProps {
+  nodeId: string;
+  popout: PopoutLayout;
+  nodeData: NodeDetails;
+  isInteracting: boolean;
+  onDragMouseDown: (event: MouseEvent, nodeId: string) => void;
+  onResizeMouseDown: (event: MouseEvent, nodeId: string) => void;
+  onClose: (nodeId: string) => void;
 }
 
 interface TopGraphStripProps {
@@ -32,10 +43,14 @@ interface TopGraphStripProps {
 
 const POPOUT_WIDTH = 320;
 const POPOUT_HEIGHT = 500;
+const POPOUT_MIN_WIDTH = 280;
+const POPOUT_MIN_HEIGHT = 220;
 const POPOUT_GAP = 16;
 const POPOUT_COLUMNS = 2;
 const MIN_X_CLEAR_SETTINGS = 340;
 const POPOUT_START_Y = 24;
+const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
+const FLOW_STYLE = { background: 'oklch(0.15 0 0)' } as const;
 
 const LANE_COLOR_PALETTE = [
   'oklch(0.7 0 0)',
@@ -48,6 +63,84 @@ const LANE_COLOR_PALETTE = [
   'oklch(0.52 0 0)',
   'oklch(0.72 0 0)',
 ];
+
+const PopoutCard = ({
+  nodeId,
+  popout,
+  nodeData,
+  isInteracting,
+  onDragMouseDown,
+  onResizeMouseDown,
+  onClose,
+}: PopoutCardProps) => {
+  const markdownBody = useMemo(() => {
+    return <MarkdownContent>{nodeData.content}</MarkdownContent>;
+  }, [nodeData.content]);
+
+  return (
+    <Card
+      size="sm"
+      className="absolute bg-background border border-border shadow-xl z-30"
+      style={{
+        left: 0,
+        top: 0,
+        transform: `translate3d(${popout.x}px, ${popout.y}px, 0)`,
+        width: popout.width,
+        height: popout.height,
+        minWidth: POPOUT_MIN_WIDTH,
+        minHeight: POPOUT_MIN_HEIGHT,
+        willChange: isInteracting ? 'transform, width, height' : 'auto',
+        userSelect: isInteracting ? 'none' : 'auto',
+      }}
+    >
+      <CardHeader
+        className="cursor-move py-1 flex-row items-center justify-between space-y-0 relative"
+        onMouseDown={(event) => onDragMouseDown(event, nodeId)}
+      >
+        <div className="flex items-center gap-2">
+          <GripVertical className="size-4 text-muted-foreground" />
+          <div className="w-1.5 h-4 bg-primary" />
+          <div>
+            <CardTitle className="text-sm">{nodeData.title}</CardTitle>
+            <span className="text-xs text-muted-foreground">{nodeData.lane}</span>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="absolute top-0 right-0 h-6 w-6"
+          onMouseDown={(event) => {
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onClose(nodeId);
+          }}
+          aria-label="Close popup"
+        >
+          <X className="size-3.5" />
+        </Button>
+      </CardHeader>
+      <Separator />
+      <CardContent className="py-2 flex-1 min-h-0 overflow-hidden">
+        <ScrollArea className="h-full">{markdownBody}</ScrollArea>
+      </CardContent>
+      <button
+        type="button"
+        aria-label="Resize popup"
+        className="absolute bottom-1 right-1 h-6 w-6 cursor-nwse-resize bg-transparent"
+        onMouseDown={(event) => onResizeMouseDown(event, nodeId)}
+      >
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-1 right-1 h-2.5 w-2.5 border-r-2 border-b-2 border-primary"
+        />
+      </button>
+    </Card>
+  );
+};
+
+const MemoizedPopoutCard = /*#__PURE__*/ memo(PopoutCard);
 
 function getLaneColor(laneId: LaneId, laneConfigs: LaneConfig[]): string {
   const index = laneConfigs.findIndex((lane) => lane.id === laneId);
@@ -76,13 +169,22 @@ export default function TopGraphStrip({
   resolveLane,
   laneConfigs,
 }: TopGraphStripProps) {
-  const [openPopouts, setOpenPopouts] = useState<Map<string, OpenPopout>>(new Map());
+  const [openNodeIds, setOpenNodeIds] = useState<Set<string>>(new Set());
+  const [popoutLayouts, setPopoutLayouts] = useState<Map<string, PopoutLayout>>(new Map());
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const resizeStart = useRef({ width: 0, height: 0, x: 0, y: 0 });
+  const rafIdRef = useRef<number | null>(null);
+  const latestPointerRef = useRef<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const graphNodeIdSet = useMemo(() => new Set(graphNodes.map((node) => node.id)), [graphNodes]);
+  const activeOpenNodeIds = useMemo(
+    () => new Set(Array.from(openNodeIds).filter((id) => graphNodeIdSet.has(id))),
+    [graphNodeIdSet, openNodeIds],
+  );
 
-  const getNextPosition = useCallback((): { x: number; y: number } => {
-    const count = openPopouts.size;
+  const getNextPosition = useCallback((count: number): { x: number; y: number } => {
     const col = count % POPOUT_COLUMNS;
     const row = Math.floor(count / POPOUT_COLUMNS);
     const containerWidth = containerRef.current?.clientWidth ?? 1200;
@@ -95,7 +197,7 @@ export default function TopGraphStrip({
       x: startX + col * (POPOUT_WIDTH + POPOUT_GAP),
       y: POPOUT_START_Y + row * (POPOUT_HEIGHT + POPOUT_GAP),
     };
-  }, [openPopouts]);
+  }, []);
 
   const { flowNodes, flowEdges, nodeDetails } = useMemo(() => {
     const sortedNodes = [...graphNodes].sort((a, b) => {
@@ -292,24 +394,40 @@ export default function TopGraphStrip({
       ...node,
       style: {
         ...node.style,
-        border: openPopouts.has(node.id)
+        border: activeOpenNodeIds.has(node.id)
           ? '2px solid oklch(0.6 0 0)'
           : node.style?.border || '2px solid oklch(0.28 0 0)',
-        boxShadow: openPopouts.has(node.id)
+        boxShadow: activeOpenNodeIds.has(node.id)
           ? '0 0 12px oklch(0.6 0 0 / 0.3)'
           : node.style?.boxShadow || 'none',
       },
     }));
-  }, [flowNodes, openPopouts]);
+  }, [activeOpenNodeIds, flowNodes]);
 
   const togglePopout = useCallback(
     (nodeId: string) => {
-      setOpenPopouts((prev) => {
-        const next = new Map(prev);
+      setOpenNodeIds((prev) => {
+        const next = new Set(prev);
         if (next.has(nodeId)) {
           next.delete(nodeId);
+          setPopoutLayouts((prevLayouts) => {
+            const nextLayouts = new Map(prevLayouts);
+            nextLayouts.delete(nodeId);
+            return nextLayouts;
+          });
         } else {
-          next.set(nodeId, { id: nodeId, ...getNextPosition() });
+          next.add(nodeId);
+          const position = getNextPosition(prev.size);
+          setPopoutLayouts((prevLayouts) => {
+            const nextLayouts = new Map(prevLayouts);
+            nextLayouts.set(nodeId, {
+              x: position.x,
+              y: position.y,
+              width: POPOUT_WIDTH,
+              height: POPOUT_HEIGHT,
+            });
+            return nextLayouts;
+          });
         }
         return next;
       });
@@ -318,7 +436,12 @@ export default function TopGraphStrip({
   );
 
   const closePopout = useCallback((nodeId: string) => {
-    setOpenPopouts((prev) => {
+    setOpenNodeIds((prev) => {
+      const next = new Set(prev);
+      next.delete(nodeId);
+      return next;
+    });
+    setPopoutLayouts((prev) => {
       const next = new Map(prev);
       next.delete(nodeId);
       return next;
@@ -328,7 +451,7 @@ export default function TopGraphStrip({
   const handleMouseDown = useCallback(
     (event: MouseEvent, nodeId: string) => {
       event.preventDefault();
-      const popout = openPopouts.get(nodeId);
+      const popout = popoutLayouts.get(nodeId);
       const rect = containerRef.current?.getBoundingClientRect();
       if (!popout || !rect) return;
 
@@ -338,33 +461,116 @@ export default function TopGraphStrip({
       };
       setDraggingId(nodeId);
     },
-    [openPopouts],
+    [popoutLayouts],
+  );
+
+  const applyPointerMove = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      if (resizingId) {
+        setPopoutLayouts((prev) => {
+          const current = prev.get(resizingId);
+          if (!current) return prev;
+
+          const maxWidth = Math.max(POPOUT_MIN_WIDTH, rect.width - current.x);
+          const maxHeight = Math.max(POPOUT_MIN_HEIGHT, rect.height - current.y);
+          const nextWidth = Math.min(
+            maxWidth,
+            Math.max(POPOUT_MIN_WIDTH, resizeStart.current.width + (clientX - resizeStart.current.x)),
+          );
+          const nextHeight = Math.min(
+            maxHeight,
+            Math.max(POPOUT_MIN_HEIGHT, resizeStart.current.height + (clientY - resizeStart.current.y)),
+          );
+
+          if (current.width === nextWidth && current.height === nextHeight) {
+            return prev;
+          }
+
+          const next = new Map(prev);
+          next.set(resizingId, { ...current, width: nextWidth, height: nextHeight });
+          return next;
+        });
+        return;
+      }
+
+      if (!draggingId) return;
+
+      setPopoutLayouts((prev) => {
+        const current = prev.get(draggingId);
+        if (!current) return prev;
+
+        const maxX = Math.max(0, rect.width - current.width);
+        const maxY = Math.max(0, rect.height - current.height);
+        const newX = Math.min(maxX, Math.max(0, clientX - rect.left - dragOffset.current.x));
+        const newY = Math.min(maxY, Math.max(0, clientY - rect.top - dragOffset.current.y));
+
+        if (current.x === newX && current.y === newY) {
+          return prev;
+        }
+
+        const next = new Map(prev);
+        next.set(draggingId, { ...current, x: newX, y: newY });
+        return next;
+      });
+    },
+    [draggingId, resizingId],
   );
 
   const handleMouseMove = useCallback(
     (event: MouseEvent) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!draggingId || !rect) return;
+      if (!draggingId && !resizingId) return;
 
-      const maxX = Math.max(0, rect.width - POPOUT_WIDTH);
-      const maxY = Math.max(0, rect.height - POPOUT_HEIGHT);
-      const newX = Math.min(maxX, Math.max(0, event.clientX - rect.left - dragOffset.current.x));
-      const newY = Math.min(maxY, Math.max(0, event.clientY - rect.top - dragOffset.current.y));
+      latestPointerRef.current = { x: event.clientX, y: event.clientY };
+      if (rafIdRef.current !== null) return;
 
-      setOpenPopouts((prev) => {
-        const next = new Map(prev);
-        const popout = next.get(draggingId);
-        if (popout) {
-          next.set(draggingId, { ...popout, x: newX, y: newY });
-        }
-        return next;
+      rafIdRef.current = window.requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        const pointer = latestPointerRef.current;
+        if (!pointer) return;
+        applyPointerMove(pointer.x, pointer.y);
       });
     },
-    [draggingId],
+    [applyPointerMove, draggingId, resizingId],
   );
 
   const handleMouseUp = useCallback(() => {
     setDraggingId(null);
+    setResizingId(null);
+    latestPointerRef.current = null;
+    if (rafIdRef.current !== null) {
+      window.cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+  }, []);
+
+  const handleResizeMouseDown = useCallback(
+    (event: MouseEvent, nodeId: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const popout = popoutLayouts.get(nodeId);
+      if (!popout) return;
+
+      resizeStart.current = {
+        width: popout.width,
+        height: popout.height,
+        x: event.clientX,
+        y: event.clientY,
+      };
+      setResizingId(nodeId);
+      setDraggingId(null);
+    },
+    [popoutLayouts],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        window.cancelAnimationFrame(rafIdRef.current);
+      }
+    };
   }, []);
 
   const onNodeClick = useCallback(
@@ -398,7 +604,7 @@ export default function TopGraphStrip({
         edges={flowEdges}
         onNodeClick={onNodeClick}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={FIT_VIEW_OPTIONS}
         panOnDrag
         zoomOnScroll
         zoomOnPinch
@@ -407,60 +613,28 @@ export default function TopGraphStrip({
         nodesDraggable
         nodesConnectable={false}
         elementsSelectable
-        style={{ background: 'oklch(0.15 0 0)' }}
+        style={FLOW_STYLE}
       >
         <Background color="oklch(0.22 0 0)" gap={16} />
       </ReactFlow>
 
-      {Array.from(openPopouts.entries()).map(([nodeId, popout]) => {
+      {Array.from(activeOpenNodeIds).map((nodeId) => {
         const nodeData = nodeDetails[nodeId];
+        const popout = popoutLayouts.get(nodeId);
         if (!nodeData) return null;
+        if (!popout) return null;
 
         return (
-          <Card
+          <MemoizedPopoutCard
             key={nodeId}
-            size="sm"
-            className="absolute bg-background border border-border shadow-xl z-30"
-            style={{
-              left: popout.x,
-              top: popout.y,
-              width: POPOUT_WIDTH,
-              height: POPOUT_HEIGHT,
-              userSelect: draggingId === nodeId ? 'none' : 'auto',
-            }}
-          >
-            <CardHeader
-              className="cursor-move py-1 flex-row items-center justify-between space-y-0 relative"
-              onMouseDown={(event) => handleMouseDown(event, nodeId)}
-            >
-              <div className="flex items-center gap-2">
-                <GripVertical className="size-4 text-muted-foreground" />
-                <div className="w-1.5 h-4 bg-primary" />
-                <div>
-                  <CardTitle className="text-sm">{nodeData.title}</CardTitle>
-                  <span className="text-xs text-muted-foreground">{nodeData.lane}</span>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="absolute top-0 right-0 h-6 w-6"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  closePopout(nodeId);
-                }}
-                aria-label="Close popup"
-              >
-                <X className="size-3.5" />
-              </Button>
-            </CardHeader>
-            <Separator />
-            <CardContent className="py-2 flex-1 overflow-hidden">
-              <ScrollArea className="h-full">
-                <MarkdownContent>{nodeData.content}</MarkdownContent>
-              </ScrollArea>
-            </CardContent>
-          </Card>
+            nodeId={nodeId}
+            popout={popout}
+            nodeData={nodeData}
+            isInteracting={draggingId === nodeId || resizingId === nodeId}
+            onDragMouseDown={handleMouseDown}
+            onResizeMouseDown={handleResizeMouseDown}
+            onClose={closePopout}
+          />
         );
       })}
     </div>
