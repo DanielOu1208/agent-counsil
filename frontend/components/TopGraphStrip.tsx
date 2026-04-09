@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { MarkdownContent } from '@/components/MarkdownContent';
 import { DebateGraphEdge, DebateGraphNode, LaneConfig, LaneId } from '@/types/ui';
 
 interface OpenPopout {
@@ -65,10 +66,8 @@ function getNodeTitle(node: DebateGraphNode): string {
 }
 
 function getNodeLabel(node: DebateGraphNode): string {
-  if (!node.content) {
-    return node.status === 'streaming' ? 'Streaming...' : getNodeTitle(node);
-  }
-  return node.content.length > 42 ? `${node.content.slice(0, 42)}...` : node.content;
+  // Use stable title instead of content to prevent flicker during streaming
+  return node.status === 'streaming' ? `${getNodeTitle(node)} •` : getNodeTitle(node);
 }
 
 export default function TopGraphStrip({
@@ -458,9 +457,7 @@ export default function TopGraphStrip({
             <Separator />
             <CardContent className="py-2 flex-1 overflow-hidden">
               <ScrollArea className="h-full">
-                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                  {nodeData.content}
-                </p>
+                <MarkdownContent>{nodeData.content}</MarkdownContent>
               </ScrollArea>
             </CardContent>
           </Card>

@@ -21,6 +21,11 @@ type CreateDebateResponse = {
   agents: Array<{ id: string; name: string; modelKey: string }>;
 };
 
+type ModelsResponse = {
+  models: ApiModel[];
+  defaultModelKey: string;
+};
+
 type ContinueAgentOverride = {
   laneId: string;
   modelKey: string;
@@ -48,8 +53,8 @@ export function getApiBaseUrl(): string {
   return API_BASE_URL;
 }
 
-export function fetchModels(): Promise<ApiModel[]> {
-  return request<ApiModel[]>("/api/models");
+export function fetchModels(): Promise<ModelsResponse> {
+  return request<ModelsResponse>("/api/models");
 }
 
 export function fetchPersonalities(): Promise<ApiPersonality[]> {
@@ -69,6 +74,7 @@ export function generatePersonality(input: {
 export function createDebate(input: {
   title: string;
   goal: string;
+  orchestratorModelKey: string;
   agents: CreateDebateAgentInput[];
 }): Promise<CreateDebateResponse> {
   return request<CreateDebateResponse>("/api/debates", {
@@ -87,11 +93,12 @@ export function startDebate(debateId: string): Promise<{ runId: string; status: 
 export function continueDebate(
   debateId: string,
   prompt: string,
+  orchestratorModelKey?: string,
   agentOverrides?: ContinueAgentOverride[],
 ): Promise<{ runId: string; status: string }> {
   return request<{ runId: string; status: string }>(`/api/debates/${debateId}/continue`, {
     method: "POST",
-    body: JSON.stringify({ prompt, agentOverrides }),
+    body: JSON.stringify({ prompt, orchestratorModelKey, agentOverrides }),
   });
 }
 

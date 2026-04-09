@@ -5,23 +5,9 @@ import { db } from "../db/client.js";
 import { personalityPresets } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { AVAILABLE_MODELS, getModelAdapter } from "../lib/models/registry.js";
+import { personalitySchema } from "../lib/personalitySchema.js";
 
 const app = new Hono();
-
-const personalitySchema = z.object({
-  name: z.string(),
-  role: z.string(),
-  tone: z.string(),
-  goal: z.string(),
-  worldview: z.string(),
-  debateStyle: z.string(),
-  riskTolerance: z.enum(["low", "medium", "high"]),
-  verbosity: z.enum(["short", "medium", "long"]),
-  preferredOutputFormat: z.string(),
-  constraints: z.array(z.string()),
-  customInstructions: z.string(),
-  avatarSeed: z.string().optional(),
-});
 
 const createPersonalitySchema = z.object({
   name: z.string().min(1).max(100),

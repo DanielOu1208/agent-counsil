@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { seedPersonalityPresets } from "./lib/personality.js";
-import { AVAILABLE_MODELS } from "./lib/models/registry.js";
+import { AVAILABLE_MODELS, DEFAULT_MODEL_KEY } from "./lib/models/registry.js";
 import debatesRouter from "./routes/debates.js";
 import personalitiesRouter from "./routes/personalities.js";
 import streamRouter from "./routes/stream.js";
@@ -61,7 +61,10 @@ app.get("/health", (c) =>
 );
 
 // ─── Available models ────────────────────────────────────────
-app.get("/api/models", (c) => c.json(AVAILABLE_MODELS));
+app.get("/api/models", (c) => c.json({
+  models: AVAILABLE_MODELS,
+  defaultModelKey: DEFAULT_MODEL_KEY,
+}));
 
 // ─── Routes ──────────────────────────────────────────────────
 app.route("/api/debates", debatesRouter);

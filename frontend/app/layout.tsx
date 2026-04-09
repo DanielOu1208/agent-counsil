@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import "./globals.css";
+import "katex/dist/katex.min.css";
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],

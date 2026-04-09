@@ -1,9 +1,10 @@
 import { v4 as uuid } from "uuid";
 import { db } from "../../db/client.js";
-import { agents, nodes, edges, debateBranches } from "../../db/schema.js";
+import { agents, nodes, edges, debateBranches, debates } from "../../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { executeAgentJob, type JobResult } from "./jobs.js";
 import { emitDebateEvent } from "../events.js";
+import { DEFAULT_MODEL_KEY } from "../models/registry.js";
 import {
   buildOpeningContext,
   buildCritiqueContext,
@@ -29,12 +30,57 @@ async function getDebateAgents(debateId: string) {
     .orderBy(agents.displayOrder);
 }
 
+async function getSynthesisModelKey(debateId: string): Promise<string> {
+  const [debate] = await db
+    .select({ orchestratorModelKey: debates.orchestratorModelKey })
+    .from(debates)
+    .where(eq(debates.id, debateId));
+
+  return debate?.orchestratorModelKey ?? DEFAULT_MODEL_KEY;
+}
+
 // Get nodes by branch and type metadata
 async function getBranchNodes(debateId: string, branchId: string) {
   return db
     .select()
     .from(nodes)
     .where(and(eq(nodes.debateId, debateId), eq(nodes.branchId, branchId), eq(nodes.status, "complete")));
+}
+
+function collectSuccessfulResults(
+  results: PromiseSettledResult<JobResult>[],
+  phaseName: string,
+): JobResult[] {
+  const successful: JobResult[] = [];
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      successful.push(result.value);
+    } else {
+      console.error(`${phaseName} job failed:`, result.reason);
+    }
+  }
+
+  return successful;
+}
+
+async function buildAgentPositionsFromResults(
+  results: JobResult[],
+  debateAgents: { id: string; name: string }[],
+): Promise<{ agentName: string; content: string }[]> {
+  const positions: { agentName: string; content: string }[] = [];
+
+  for (const result of results) {
+    const [node] = await db.select().from(nodes).where(eq(nodes.id, result.nodeId));
+    if (!node?.speakerId) continue;
+
+    const agent = debateAgents.find((a) => a.id === node.speakerId);
+    if (agent) {
+      positions.push({ agentName: agent.name, content: result.content });
+    }
+  }
+
+  return positions;
 }
 
 // ─── Opening Phase ─────────────────────────────────────────
@@ -130,17 +176,7 @@ export async function runOpeningPhase(params: PhaseParams): Promise<JobResult[]>
   });
 
   const results = await Promise.allSettled(jobPromises);
-  const successful: JobResult[] = [];
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      successful.push(result.value);
-    } else {
-      console.error("Opening phase job failed:", result.reason);
-    }
-  }
-
-  return successful;
+  return collectSuccessfulResults(results, "Opening phase");
 }
 
 // ─── Critique Phase ────────────────────────────────────────
@@ -197,15 +233,7 @@ export async function runCritiquePhase(
   });
 
   const results = await Promise.allSettled(jobPromises);
-  const successful: JobResult[] = [];
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      successful.push(result.value);
-    } else {
-      console.error("Critique phase job failed:", result.reason);
-    }
-  }
-  return successful;
+  return collectSuccessfulResults(results, "Critique phase");
 }
 
 // ─── Convergence Phase ─────────────────────────────────────
@@ -217,16 +245,7 @@ export async function runConvergencePhase(
   const debateAgents = await getDebateAgents(debateId);
 
   // Build critique nodes for context
-  const critiquePositions: { agentName: string; content: string }[] = [];
-  for (const result of critiqueResults) {
-    const [node] = await db.select().from(nodes).where(eq(nodes.id, result.nodeId));
-    if (node && node.speakerId) {
-      const agent = debateAgents.find((a) => a.id === node.speakerId);
-      if (agent) {
-        critiquePositions.push({ agentName: agent.name, content: result.content });
-      }
-    }
-  }
+  const critiquePositions = await buildAgentPositionsFromResults(critiqueResults, debateAgents);
 
   const jobPromises = debateAgents.map(async (agent) => {
     const messages = buildConvergenceContext(goal, agent, critiquePositions);
@@ -257,15 +276,7 @@ export async function runConvergencePhase(
   });
 
   const results = await Promise.allSettled(jobPromises);
-  const successful: JobResult[] = [];
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      successful.push(result.value);
-    } else {
-      console.error("Convergence phase job failed:", result.reason);
-    }
-  }
-  return successful;
+  return collectSuccessfulResults(results, "Convergence phase");
 }
 
 // ─── Final Synthesis Phase ─────────────────────────────────
@@ -277,21 +288,11 @@ export async function runFinalPhase(
   const debateAgents = await getDebateAgents(debateId);
 
   // Build convergence positions for synthesis
-  const convergencePositions: { agentName: string; content: string }[] = [];
-  for (const result of convergenceResults) {
-    const [node] = await db.select().from(nodes).where(eq(nodes.id, result.nodeId));
-    if (node && node.speakerId) {
-      const agent = debateAgents.find((a) => a.id === node.speakerId);
-      if (agent) {
-        convergencePositions.push({ agentName: agent.name, content: result.content });
-      }
-    }
-  }
+  const convergencePositions = await buildAgentPositionsFromResults(convergenceResults, debateAgents);
 
   const messages = buildSynthesisContext(goal, convergencePositions);
 
-  // Use the synthesis model from env, fallback to Gemini 2.5 Flash Lite
-  const synthesisModel = process.env.SYNTHESIS_MODEL ?? "gemini:gemini-2.5-flash-lite";
+  const synthesisModel = await getSynthesisModelKey(debateId);
 
   const result = await executeAgentJob({
     runId,
@@ -425,17 +426,7 @@ export async function runContinuationOpeningPhase(
   });
 
   const results = await Promise.allSettled(jobPromises);
-  const successful: JobResult[] = [];
-
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      successful.push(result.value);
-    } else {
-      console.error("Continuation opening phase job failed:", result.reason);
-    }
-  }
-
-  return successful;
+  return collectSuccessfulResults(results, "Continuation opening phase");
 }
 
 // ─── Continuation Final Phase ──────────────────────────────
@@ -449,20 +440,11 @@ export async function runContinuationFinalPhase(
   const debateAgents = await getDebateAgents(debateId);
 
   // Build new positions from continuation results
-  const newPositions: { agentName: string; content: string }[] = [];
-  for (const result of continuationResults) {
-    const [node] = await db.select().from(nodes).where(eq(nodes.id, result.nodeId));
-    if (node && node.speakerId) {
-      const agent = debateAgents.find((a) => a.id === node.speakerId);
-      if (agent) {
-        newPositions.push({ agentName: agent.name, content: result.content });
-      }
-    }
-  }
+  const newPositions = await buildAgentPositionsFromResults(continuationResults, debateAgents);
 
   const messages = buildContinuationSynthesisContext(goal, userFollowUp, priorSynthesis, newPositions);
 
-  const synthesisModel = process.env.SYNTHESIS_MODEL ?? "gemini:gemini-2.5-flash-lite";
+  const synthesisModel = await getSynthesisModelKey(debateId);
 
   const result = await executeAgentJob({
     runId,

@@ -25,7 +25,7 @@ import {
   ReasoningMessage,
 } from '@/types/ui';
 
-const FALLBACK_MODEL_KEY = 'gemini:gemini-2.5-flash-lite';
+const FALLBACK_MODEL_KEY = 'openrouter:stepfun/step-3.5-flash';
 
 const DEFAULT_AGENT_COUNT = 3;
 const MIN_AGENT_COUNT = 1;
@@ -127,6 +127,7 @@ export default function Home() {
   const [status, setStatus] = useState<DebateStatus>('idle');
   const [debateId, setDebateId] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<ApiModel[]>([]);
+  const [defaultModelKey, setDefaultModelKey] = useState(FALLBACK_MODEL_KEY);
   const [personalityOptions, setPersonalityOptions] = useState<ApiPersonality[]>([]);
   const [laneSettings, setLaneSettings] =
     useState<Record<LaneId, LaneSettings>>(() => buildInitialLaneSettings(DEFAULT_AGENT_COUNT));
@@ -151,6 +152,8 @@ export default function Home() {
   >([]);
   const [agentLaneById, setAgentLaneById] = useState<Record<string, LaneId>>({});
   const eventSourceRef = useRef<EventSource | null>(null);
+  const chunkBufferRef = useRef<Map<string, string>>(new Map());
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handlePersonalityGenerated = useCallback((personality: ApiPersonality) => {
     setPersonalityOptions((prev) => {
@@ -196,10 +199,54 @@ export default function Home() {
   );
 
   const closeStream = useCallback(() => {
+    // Flush any remaining buffered chunks before closing
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    if (chunkBufferRef.current.size > 0) {
+      setGraphNodes((prev) =>
+        prev.map((node) => {
+          const buffered = chunkBufferRef.current.get(node.id);
+          if (!buffered) return node;
+          return {
+            ...node,
+            content: `${node.content}${buffered}`,
+            status: 'streaming',
+          };
+        }),
+      );
+      chunkBufferRef.current.clear();
+    }
+
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+  }, []);
+
+  const flushBufferedChunks = useCallback(() => {
+    if (chunkBufferRef.current.size === 0) {
+      flushTimerRef.current = null;
+      return;
+    }
+
+    const chunksToApply = new Map(chunkBufferRef.current);
+    chunkBufferRef.current.clear();
+
+    setGraphNodes((prev) =>
+      prev.map((node) => {
+        const buffered = chunksToApply.get(node.id);
+        if (!buffered) return node;
+        return {
+          ...node,
+          content: `${node.content}${buffered}`,
+          status: 'streaming',
+        };
+      }),
+    );
+
+    flushTimerRef.current = null;
   }, []);
 
   const refreshGraph = useCallback(
@@ -214,15 +261,16 @@ export default function Home() {
   );
 
   const hydrateOptions = useCallback(async () => {
-    const [models, personalities] = await Promise.all([
+    const [{ models, defaultModelKey: backendDefaultModelKey }, personalities] = await Promise.all([
       fetchModels(),
       fetchPersonalities(),
     ]);
 
     setModelOptions(models);
+    setDefaultModelKey(backendDefaultModelKey || FALLBACK_MODEL_KEY);
     setPersonalityOptions(personalities);
 
-    const modelFallback = models[0]?.key ?? FALLBACK_MODEL_KEY;
+    const modelFallback = backendDefaultModelKey || models[0]?.key || FALLBACK_MODEL_KEY;
 
     setLaneSettings((prev) => {
       const next = { ...prev };
@@ -236,7 +284,11 @@ export default function Home() {
       return next;
     });
 
-    return { models, personalities };
+    return {
+      models,
+      defaultModelKey: backendDefaultModelKey || FALLBACK_MODEL_KEY,
+      personalities,
+    };
   }, [laneConfigs]);
 
   const openSse = useCallback(
@@ -276,22 +328,22 @@ export default function Home() {
         const payload = parseEventData<ChunkEventPayload>(event);
         if (!payload) return;
 
-        setGraphNodes((prev) =>
-          prev.map((node) =>
-            node.id === payload.nodeId
-              ? {
-                  ...node,
-                  content: `${node.content}${payload.chunk}`,
-                  status: 'streaming',
-                }
-              : node,
-          ),
-        );
+        // Buffer the chunk for this node
+        const existing = chunkBufferRef.current.get(payload.nodeId) ?? '';
+        chunkBufferRef.current.set(payload.nodeId, existing + payload.chunk);
+
+        // Schedule flush if not already scheduled (throttle to ~80ms)
+        if (!flushTimerRef.current) {
+          flushTimerRef.current = setTimeout(flushBufferedChunks, 80);
+        }
       });
 
       source.addEventListener('node:complete', (event) => {
         const payload = parseEventData<CompleteEventPayload>(event);
         if (!payload) return;
+
+        // Clear any buffered chunks for this node since we have the final content
+        chunkBufferRef.current.delete(payload.nodeId);
 
         setGraphNodes((prev) =>
           prev.map((node) =>
@@ -343,17 +395,19 @@ export default function Home() {
         console.warn('SSE stream disconnected, retrying...');
       };
     },
-    [closeStream],
+    [closeStream, flushBufferedChunks],
   );
 
   const startNewDebate = useCallback(
     async (goal: string) => {
       let models = modelOptions;
       let personalities = personalityOptions;
+      let effectiveDefaultModelKey = defaultModelKey;
 
       if (models.length === 0 || personalities.length === 0) {
         const hydrated = await hydrateOptions();
         models = hydrated.models;
+        effectiveDefaultModelKey = hydrated.defaultModelKey;
         personalities = hydrated.personalities;
       }
 
@@ -365,7 +419,8 @@ export default function Home() {
         personalities.map((personality) => [personality.id, personality]),
       );
 
-      const modelFallback = models[0]?.key ?? FALLBACK_MODEL_KEY;
+      const modelFallback = effectiveDefaultModelKey || models[0]?.key || FALLBACK_MODEL_KEY;
+      const orchestratorModelKey = laneSettings.orchestrator?.modelKey || modelFallback;
 
       const laneAgentInputs = agentLanes.map((laneId, index) => {
         const laneConfig = laneConfigs.find((lane) => lane.id === laneId);
@@ -391,6 +446,7 @@ export default function Home() {
       const created = await createDebate({
         title: deriveTitle(goal),
         goal,
+        orchestratorModelKey,
         agents: laneAgentInputs.map((item) => item.payload),
       });
 
@@ -414,6 +470,7 @@ export default function Home() {
       hydrateOptions,
       laneConfigs,
       laneSettings,
+      defaultModelKey,
       modelOptions,
       openSse,
       personalityOptions,
@@ -461,11 +518,14 @@ export default function Home() {
       const newLaneId = `debater-${String.fromCharCode(97 + prev)}`;
       setLaneSettings((prevSettings) => ({
         ...prevSettings,
-        [newLaneId]: { modelKey: modelOptions[0]?.key ?? '', personalityId: personalityOptions[0]?.id ?? '' },
+        [newLaneId]: {
+          modelKey: defaultModelKey || modelOptions[0]?.key || '',
+          personalityId: personalityOptions[0]?.id ?? '',
+        },
       }));
       return next;
     });
-  }, [modelOptions, personalityOptions]);
+  }, [defaultModelKey, modelOptions, personalityOptions]);
 
   const handleRemoveAgent = useCallback((laneId: LaneId) => {
     setAgentCount((prev) => {
@@ -508,9 +568,12 @@ export default function Home() {
         if (status === 'completed') {
           setStatus('running');
           const agentOverrides = buildContinueAgentOverrides();
+          const modelFallback = defaultModelKey || modelOptions[0]?.key || FALLBACK_MODEL_KEY;
+          const orchestratorModelKey = laneSettings.orchestrator?.modelKey || modelFallback;
           await continueDebate(
             debateId,
             trimmed,
+            orchestratorModelKey,
             agentOverrides.length > 0 ? agentOverrides : undefined,
           );
           return;
@@ -525,7 +588,17 @@ export default function Home() {
         setStatus('errored');
       }
     },
-    [buildContinueAgentOverrides, closeStream, debateId, refreshGraph, startNewDebate, status],
+    [
+      buildContinueAgentOverrides,
+      closeStream,
+      debateId,
+      defaultModelKey,
+      laneSettings,
+      modelOptions,
+      refreshGraph,
+      startNewDebate,
+      status,
+    ],
   );
 
   const handleFinalize = useCallback(async () => {

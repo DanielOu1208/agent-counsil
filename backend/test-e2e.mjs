@@ -16,8 +16,8 @@ async function run() {
       title: "Should we use AI to replace teachers?",
       goal: "Should artificial intelligence replace human teachers in schools? Consider educational outcomes, social development, accessibility, and cost.",
       agents: [
-        { name: "Skeptic", modelKey: "gemini:gemini-2.0-flash", personalityJson: JSON.stringify(skeptic) },
-        { name: "Optimist", modelKey: "gemini:gemini-2.0-flash", personalityJson: JSON.stringify(optimist) },
+        { name: "Skeptic", modelKey: "openrouter:stepfun/step-3.5-flash", personalityJson: JSON.stringify(skeptic) },
+        { name: "Optimist", modelKey: "openrouter:stepfun/step-3.5-flash", personalityJson: JSON.stringify(optimist) },
       ],
     }),
   }).then(r => r.json());

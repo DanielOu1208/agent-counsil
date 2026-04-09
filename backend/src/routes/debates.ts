@@ -14,7 +14,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { runDebate, continueDebate } from "../lib/orchestrator/engine.js";
 import { handleIntervention } from "../lib/orchestrator/intervention.js";
 import { regenerateFromNode } from "../lib/orchestrator/regenerate.js";
-import { AVAILABLE_MODELS } from "../lib/models/registry.js";
+import { AVAILABLE_MODELS, DEFAULT_MODEL_KEY } from "../lib/models/registry.js";
 
 const app = new Hono();
 
@@ -23,11 +23,18 @@ const app = new Hono();
 const createDebateSchema = z.object({
   title: z.string().min(1).max(200),
   goal: z.string().min(1).max(5000),
+  orchestratorModelKey: z.string().min(1).refine(
+    (value) => AVAILABLE_MODELS.some((model) => model.key === value),
+    { message: "Unknown orchestrator model key" },
+  ).optional(),
   agents: z
     .array(
       z.object({
         name: z.string().min(1),
-        modelKey: z.string().min(1),
+        modelKey: z.string().min(1).refine(
+          (value) => AVAILABLE_MODELS.some((model) => model.key === value),
+          { message: "Unknown model key" },
+        ),
         personalityJson: z.string(), // stringified AgentPersonality
         avatarConfigJson: z.string().optional(),
       }),
@@ -78,7 +85,7 @@ app.post("/", async (c) => {
     return c.json({ error: parsed.error.flatten() }, 400);
   }
 
-  const { title, goal, agents: agentInputs } = parsed.data;
+  const { title, goal, orchestratorModelKey, agents: agentInputs } = parsed.data;
   const now = new Date().toISOString();
   const debateId = uuid();
   const branchId = uuid();
@@ -108,6 +115,7 @@ app.post("/", async (c) => {
       title,
       status: "draft",
       goal,
+      orchestratorModelKey: orchestratorModelKey ?? DEFAULT_MODEL_KEY,
       activeBranchId: branchId,
       finalAnswerNodeId: null,
       createdAt: now,
@@ -305,9 +313,13 @@ app.post("/:id/start", async (c) => {
 
 const continueSchema = z.object({
   prompt: z.string().min(1).max(5000),
+  orchestratorModelKey: z.string().min(1).refine(
+    (value) => AVAILABLE_MODELS.some((model) => model.key === value),
+    { message: "Unknown orchestrator model key" },
+  ).optional(),
   agentOverrides: z.array(
     z.object({
-      laneId: z.enum(["debater-a", "debater-b", "debater-c"]),
+      laneId: z.string().regex(/^debater-[a-e]$/, "Invalid laneId"),
       modelKey: z.string().min(1).refine(
         (value) => AVAILABLE_MODELS.some((model) => model.key === value),
         { message: "Unknown model key" },
@@ -320,7 +332,7 @@ const continueSchema = z.object({
         }
       }, { message: "Invalid personalityJson payload" }),
     }),
-  ).max(3).optional(),
+  ).max(5).optional(),
 });
 
 app.post("/:id/continue", async (c) => {
@@ -338,8 +350,17 @@ app.post("/:id/continue", async (c) => {
     return c.json({ error: "Debate must be completed before continuing" }, 400);
   }
 
+  if (parsed.data.orchestratorModelKey) {
+    await db.update(debates)
+      .set({
+        orchestratorModelKey: parsed.data.orchestratorModelKey,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(debates.id, id));
+  }
+
   if (parsed.data.agentOverrides && parsed.data.agentOverrides.length > 0) {
-    const laneOrder = ["debater-a", "debater-b", "debater-c"] as const;
+    const laneOrder = Array.from({ length: 5 }, (_, index) => `debater-${String.fromCharCode(97 + index)}`);
     const laneIndexById = new Map(laneOrder.map((laneId, index) => [laneId, index]));
     const debateAgents = await db
       .select()
@@ -477,15 +498,9 @@ app.post("/:id/branches/:branchId/activate", async (c) => {
   if (!branch) return c.json({ error: "Branch not found" }, 404);
 
   // Deactivate all branches for this debate
-  const allBranches = await db
-    .select()
-    .from(debateBranches)
+  await db.update(debateBranches)
+    .set({ isActive: false })
     .where(eq(debateBranches.debateId, debateId));
-  for (const b of allBranches) {
-    await db.update(debateBranches)
-      .set({ isActive: false })
-      .where(eq(debateBranches.id, b.id));
-  }
 
   // Activate the selected branch
   await db.update(debateBranches)

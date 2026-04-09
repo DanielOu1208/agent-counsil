@@ -23,7 +23,7 @@ cp .env.example .env
 
 # 3. (Optional) Add your LLM API keys to .env
 #    - OpenAI: https://platform.openai.com/api-keys
-#    - Gemini: https://aistudio.google.com/apikey
+#    - OpenRouter: https://openrouter.ai/keys
 #    - Or leave blank and use "mock:default" for testing
 
 # 4. Create the database
@@ -49,25 +49,20 @@ The server runs on **http://localhost:3001** by default.
 
 You need **at least one** LLM provider key, or use the mock adapter for testing.
 
-| Provider | Model Keys                                          | Get a Key                              |
-| -------- | --------------------------------------------------- | -------------------------------------- |
-| OpenAI   | `openai:gpt-4o`, `openai:gpt-4o-mini`              | https://platform.openai.com/api-keys   |
-| Gemini   | `gemini:gemini-2.0-flash`, `gemini:gemini-1.5-pro`  | https://aistudio.google.com/apikey     |
-| Mock     | `mock:default`, `mock:fast`                         | No key needed (simulated responses)    |
+| Provider    | Model Keys                                                       | Get a Key                              |
+| ----------- | ---------------------------------------------------------------- | -------------------------------------- |
+| OpenRouter  | `openrouter:stepfun/step-3.5-flash`, many others                 | https://openrouter.ai/keys             |
+| OpenAI      | `openai:gpt-4o`, `openai:gpt-4o-mini`                            | https://platform.openai.com/api-keys   |
+| Mock        | `mock:default`, `mock:fast`                                      | No key needed (simulated responses)    |
 
 Set your keys in `.env`:
 
 ```
 OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=AI...
-SYNTHESIS_MODEL=gemini:gemini-2.0-flash
+OPENROUTER_API_KEY=sk-or-...
 ```
 
-For testing without keys, use:
-
-```
-SYNTHESIS_MODEL=mock:default
-```
+The orchestrator model is configured via debate settings (UI/API), with a backend default when unspecified. For testing without API keys, use `mock:default` as the model identifier in your debate settings.
 
 ## API Endpoints
 

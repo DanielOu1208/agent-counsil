@@ -8,6 +8,7 @@ export const debates = pgTable("debates", {
     enum: ["draft", "running", "waiting_user", "completed", "errored"],
   }).notNull(),
   goal: text("goal").notNull(),
+  orchestratorModelKey: text("orchestrator_model_key"),
   activeBranchId: text("active_branch_id"),
   finalAnswerNodeId: text("final_answer_node_id"),
   createdAt: text("created_at").notNull(),
