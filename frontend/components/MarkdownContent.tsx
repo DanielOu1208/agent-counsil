@@ -15,7 +15,7 @@ interface MarkdownContentProps {
  * Future-proof rich text renderer supporting:
  * - Markdown (bold, italic, lists, links, etc.)
  * - GFM extensions (tables, strikethrough, task lists)
- * - LaTeX math (inline $...$ and block $$...$$)
+ * - LaTeX math (block $$...$$, plus safe inline usage without currency collisions)
  *
  * Safety: disables raw HTML injection by default.
  */
@@ -23,7 +23,9 @@ export function MarkdownContent({ children, className }: MarkdownContentProps) {
   return (
     <div className={cn('markdown-content', className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        // Avoid treating currency like "$1,000" as math.
+        // Keep math support, but disable single-$ inline parsing.
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
         rehypePlugins={[rehypeKatex]}
         // Security: disallow raw HTML by default
         skipHtml={true}

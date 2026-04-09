@@ -104,3 +104,36 @@ export interface ReasoningMessage {
   isUser?: boolean;
   isStreaming?: boolean;
 }
+
+export type WorkspaceFixedTabId = 'configuration' | 'personality' | 'lanes';
+
+export interface WorkspaceFixedTab {
+  id: WorkspaceFixedTabId;
+  kind: 'fixed';
+  title: string;
+  closable: false;
+}
+
+export interface WorkspaceNodeDetails {
+  title: string;
+  lane: string;
+  content: string;
+}
+
+export interface WorkspaceNodeTab {
+  id: string;
+  kind: 'node';
+  title: string;
+  nodeId: string;
+  closable: true;
+}
+
+export type WorkspaceTab = WorkspaceFixedTab | WorkspaceNodeTab;
+
+export const WORKSPACE_FIXED_TABS: WorkspaceFixedTab[] = [
+  { id: 'configuration', kind: 'fixed', title: 'Configuration', closable: false },
+  { id: 'personality', kind: 'fixed', title: 'Personality', closable: false },
+  { id: 'lanes', kind: 'fixed', title: 'Lanes', closable: false },
+];
+
+export const DEFAULT_WORKSPACE_TAB_ID: WorkspaceFixedTabId = 'configuration';

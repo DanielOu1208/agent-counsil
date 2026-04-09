@@ -29,7 +29,7 @@ export default function DebateInputBar({ onSendMessage, disabled = false }: Deba
   };
 
   return (
-    <Card className="bg-popover/95 backdrop-blur-sm shadow-xl border border-border py-3">
+    <Card className="rounded-none border border-border bg-popover/95 py-3 shadow-sm backdrop-blur-sm">
       <CardContent className="px-3 py-0">
         <div className="flex items-end gap-2">
           <div className="flex-1 relative">
@@ -53,7 +53,7 @@ export default function DebateInputBar({ onSendMessage, disabled = false }: Deba
             </Button>
           </div>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
+        <p className="mt-1.5 text-center text-xs text-muted-foreground">
           Press Enter to send, Shift+Enter for new line
         </p>
       </CardContent>
