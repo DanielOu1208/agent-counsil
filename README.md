@@ -28,7 +28,7 @@ It includes:
 - Frontend: Next.js (App Router), React, TypeScript, Tailwind, shadcn/ui
 - Backend: Hono, TypeScript, Node.js, Drizzle ORM
 - Database: Postgres
-- Model providers: OpenAI and OpenRouter (plus mock model options in parts of the stack)
+- Model providers: OpenRouter
 
 ## Repository Structure
 
@@ -62,9 +62,8 @@ Create `backend/.env` with at least:
 DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DB_NAME
 DRIZZLE_DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DB_NAME
 
-# Optional model providers
-OPENAI_API_KEY=
-OPENROUTER_API_KEY=
+# Required model provider
+OPENROUTER_API_KEY=sk-or-...
 
 # Optional runtime config
 PORT=3001
@@ -108,8 +107,7 @@ Frontend default URL: `http://localhost:3000`
 
 - `DATABASE_URL` (required): runtime DB connection
 - `DRIZZLE_DATABASE_URL` (required for `npm run db:push`): migration/schema push connection
-- `OPENAI_API_KEY` (optional): enables OpenAI-backed models
-- `OPENROUTER_API_KEY` (optional): enables OpenRouter-backed models
+- `OPENROUTER_API_KEY` (required): enables OpenRouter-backed models
 - `PORT` (optional): backend port (defaults to `3001`)
 - `OPENROUTER_REFERER` (optional): OpenRouter request header override
 - `OPENROUTER_TITLE` (optional): OpenRouter request header override

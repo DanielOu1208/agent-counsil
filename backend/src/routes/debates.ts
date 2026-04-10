@@ -68,7 +68,7 @@ app.post("/", async (c) => {
 
   const { title, goal, orchestratorModelKey, agents: agentInputs } = parsed.data;
 
-  // Runtime catalog membership check
+  // Runtime catalog membership check and migration of legacy keys
   const modelKeysToValidate = [
     orchestratorModelKey,
     ...agentInputs.map((a) => a.modelKey),
@@ -81,6 +81,15 @@ app.post("/", async (c) => {
       : `Unknown model key: ${firstInvalid}`;
     return c.json({ error: { formErrors: [message], fieldErrors: {} } }, 400);
   }
+  
+  // Use migrated keys for storage (converts legacy openai:* and mock:* to openrouter:*)
+  const migratedOrchestratorKey = orchestratorModelKey 
+    ? (validation.migratedKeys?.get(orchestratorModelKey) ?? orchestratorModelKey)
+    : DEFAULT_MODEL_KEY;
+  const migratedAgentInputs = agentInputs.map((a) => ({
+    ...a,
+    modelKey: validation.migratedKeys?.get(a.modelKey) ?? a.modelKey,
+  }));
   
   const now = new Date().toISOString();
   const debateId = uuid();
@@ -111,7 +120,7 @@ app.post("/", async (c) => {
       title,
       status: "draft",
       goal,
-      orchestratorModelKey: orchestratorModelKey ?? DEFAULT_MODEL_KEY,
+      orchestratorModelKey: migratedOrchestratorKey,
       activeBranchId: branchId,
       finalAnswerNodeId: null,
       createdAt: now,
@@ -131,7 +140,7 @@ app.post("/", async (c) => {
     });
 
   // Create agents
-  const agentRecords = agentInputs.map((a, i) => ({
+  const agentRecords = migratedAgentInputs.map((a, i) => ({
     id: uuid(),
     debateId,
     name: a.name,
@@ -333,7 +342,7 @@ app.post("/:id/continue", async (c) => {
     return c.json({ error: parsed.error.flatten() }, 400);
   }
 
-  // Runtime catalog membership check
+  // Runtime catalog membership check and migration of legacy keys
   const modelKeysToValidate = [
     parsed.data.orchestratorModelKey,
     ...(parsed.data.agentOverrides?.map((o) => o.modelKey) ?? []),
@@ -347,6 +356,11 @@ app.post("/:id/continue", async (c) => {
     return c.json({ error: { formErrors: [message], fieldErrors: {} } }, 400);
   }
 
+  // Use migrated keys (converts legacy openai:* and mock:* to openrouter:*)
+  const migratedOrchestratorKey = parsed.data.orchestratorModelKey
+    ? (validation.migratedKeys?.get(parsed.data.orchestratorModelKey) ?? parsed.data.orchestratorModelKey)
+    : undefined;
+
   const [debate] = await db.select().from(debates).where(eq(debates.id, id));
   if (!debate) return c.json({ error: "Debate not found" }, 404);
   if (debate.status === "running") return c.json({ error: "Debate is already running" }, 409);
@@ -354,16 +368,22 @@ app.post("/:id/continue", async (c) => {
     return c.json({ error: "Debate must be completed before continuing" }, 400);
   }
 
-  if (parsed.data.orchestratorModelKey) {
+  if (migratedOrchestratorKey) {
     await db.update(debates)
       .set({
-        orchestratorModelKey: parsed.data.orchestratorModelKey,
+        orchestratorModelKey: migratedOrchestratorKey,
         updatedAt: new Date().toISOString(),
       })
       .where(eq(debates.id, id));
   }
 
   if (parsed.data.agentOverrides && parsed.data.agentOverrides.length > 0) {
+    // Migrate agent override model keys
+    const migratedAgentOverrides = parsed.data.agentOverrides.map((override) => ({
+      ...override,
+      modelKey: validation.migratedKeys?.get(override.modelKey) ?? override.modelKey,
+    }));
+    
     const laneOrder = Array.from({ length: 5 }, (_, index) => `debater-${String.fromCharCode(97 + index)}`);
     const laneIndexById = new Map(laneOrder.map((laneId, index) => [laneId, index]));
     const debateAgents = await db
@@ -373,7 +393,7 @@ app.post("/:id/continue", async (c) => {
       .orderBy(agents.displayOrder);
 
     const overridesByLane = new Map(
-      parsed.data.agentOverrides.map((override) => [override.laneId, override]),
+      migratedAgentOverrides.map((override) => [override.laneId, override]),
     );
 
     for (const [laneId, override] of overridesByLane) {

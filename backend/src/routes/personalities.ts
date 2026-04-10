@@ -157,8 +157,10 @@ app.post("/generate", async (c) => {
     return c.json({ error: `Unknown model key: ${validation.invalidKeys[0]}` }, 400);
   }
 
+  const migratedModelKey = validation.migratedKeys?.get(modelKey) ?? modelKey;
+
   try {
-    const adapter = getModelAdapter(modelKey);
+    const adapter = getModelAdapter(migratedModelKey);
     const rawResponse = await collectStream(
       adapter.generateStream(
         [
@@ -206,7 +208,7 @@ app.post("/generate", async (c) => {
       isUserCreated: true,
       createdAt: now,
       updatedAt: now,
-      generatedByModelKey: modelKey,
+      generatedByModelKey: migratedModelKey,
     }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown generation error";

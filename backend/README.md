@@ -21,10 +21,8 @@ npm install
 # 2. Copy environment file and add your API keys
 cp .env.example .env
 
-# 3. (Optional) Add your LLM API keys to .env
-#    - OpenAI: https://platform.openai.com/api-keys
-#    - OpenRouter: https://openrouter.ai/keys
-#    - Or leave blank and use "mock:default" for testing
+# 3. Add your OpenRouter API key to .env
+#    Get your key at: https://openrouter.ai/keys
 
 # 4. Create the database
 npm run db:push
@@ -47,22 +45,21 @@ The server runs on **http://localhost:3001** by default.
 
 ## API Keys & Models
 
-You need **at least one** LLM provider key, or use the mock adapter for testing.
+You need an OpenRouter API key to use the debate system.
 
 | Provider    | Model Keys                                                       | Get a Key                              |
 | ----------- | ---------------------------------------------------------------- | -------------------------------------- |
 | OpenRouter  | `openrouter:stepfun/step-3.5-flash`, many others                 | https://openrouter.ai/keys             |
-| OpenAI      | `openai:gpt-4o`, `openai:gpt-4o-mini`                            | https://platform.openai.com/api-keys   |
-| Mock        | `mock:default`, `mock:fast`                                      | No key needed (simulated responses)    |
 
-Set your keys in `.env`:
+Set your key in `.env`:
 
 ```
-OPENAI_API_KEY=sk-...
 OPENROUTER_API_KEY=sk-or-...
 ```
 
-The orchestrator model is configured via debate settings (UI/API), with a backend default when unspecified. For testing without API keys, use `mock:default` as the model identifier in your debate settings.
+The orchestrator model is configured via debate settings (UI/API), with a backend default when unspecified.
+
+**Note:** Legacy model keys (`openai:*` and `mock:*`) are automatically migrated to OpenRouter equivalents at runtime for backward compatibility with existing data.
 
 ## API Endpoints
 
@@ -101,7 +98,7 @@ The orchestrator model is configured via debate settings (UI/API), with a backen
 You need C++ build tools. See Prerequisites above.
 
 ### Server starts but API calls return 429
-Your API key has no quota. Either add billing to your provider account or use `mock:default`.
+Your OpenRouter API key has no quota. Add billing to your OpenRouter account.
 
 ### `drizzle-kit push` fails with "directory does not exist"
 Run `mkdir -p data` first, then retry.
