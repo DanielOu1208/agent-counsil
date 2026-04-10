@@ -14,7 +14,8 @@ import { eq, and, desc } from "drizzle-orm";
 import { runDebate, continueDebate } from "../lib/orchestrator/engine.js";
 import { handleIntervention } from "../lib/orchestrator/intervention.js";
 import { regenerateFromNode } from "../lib/orchestrator/regenerate.js";
-import { AVAILABLE_MODELS, DEFAULT_MODEL_KEY } from "../lib/models/registry.js";
+import { getCatalog } from "../lib/models/catalog-cache.js";
+import { DEFAULT_MODEL_KEY } from "../lib/models/registry.js";
 
 const app = new Hono();
 
@@ -23,18 +24,12 @@ const app = new Hono();
 const createDebateSchema = z.object({
   title: z.string().min(1).max(200),
   goal: z.string().min(1).max(5000),
-  orchestratorModelKey: z.string().min(1).refine(
-    (value) => AVAILABLE_MODELS.some((model) => model.key === value),
-    { message: "Unknown orchestrator model key" },
-  ).optional(),
+  orchestratorModelKey: z.string().min(1).optional(),
   agents: z
     .array(
       z.object({
         name: z.string().min(1),
-        modelKey: z.string().min(1).refine(
-          (value) => AVAILABLE_MODELS.some((model) => model.key === value),
-          { message: "Unknown model key" },
-        ),
+        modelKey: z.string().min(1),
         personalityJson: z.string(), // stringified AgentPersonality
         avatarConfigJson: z.string().optional(),
       }),
@@ -86,6 +81,21 @@ app.post("/", async (c) => {
   }
 
   const { title, goal, orchestratorModelKey, agents: agentInputs } = parsed.data;
+  
+  // Runtime catalog membership check
+  const catalog = await getCatalog();
+  const allowedKeys = new Set(catalog.models.map(m => m.key));
+  
+  if (orchestratorModelKey && !allowedKeys.has(orchestratorModelKey)) {
+    return c.json({ error: { formErrors: ["Unknown orchestrator model key"], fieldErrors: {} } }, 400);
+  }
+  
+  for (const agent of agentInputs) {
+    if (!allowedKeys.has(agent.modelKey)) {
+      return c.json({ error: { formErrors: [`Unknown model key: ${agent.modelKey}`], fieldErrors: {} } }, 400);
+    }
+  }
+  
   const now = new Date().toISOString();
   const debateId = uuid();
   const branchId = uuid();
@@ -313,17 +323,11 @@ app.post("/:id/start", async (c) => {
 
 const continueSchema = z.object({
   prompt: z.string().min(1).max(5000),
-  orchestratorModelKey: z.string().min(1).refine(
-    (value) => AVAILABLE_MODELS.some((model) => model.key === value),
-    { message: "Unknown orchestrator model key" },
-  ).optional(),
+  orchestratorModelKey: z.string().min(1).optional(),
   agentOverrides: z.array(
     z.object({
       laneId: z.string().regex(/^debater-[a-e]$/, "Invalid laneId"),
-      modelKey: z.string().min(1).refine(
-        (value) => AVAILABLE_MODELS.some((model) => model.key === value),
-        { message: "Unknown model key" },
-      ),
+      modelKey: z.string().min(1),
       personalityJson: z.string().refine((value) => {
         try {
           return personalitySchema.safeParse(JSON.parse(value)).success;
@@ -341,6 +345,22 @@ app.post("/:id/continue", async (c) => {
   const parsed = continueSchema.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: parsed.error.flatten() }, 400);
+  }
+
+  // Runtime catalog membership check
+  const catalog = await getCatalog();
+  const allowedKeys = new Set(catalog.models.map(m => m.key));
+  
+  if (parsed.data.orchestratorModelKey && !allowedKeys.has(parsed.data.orchestratorModelKey)) {
+    return c.json({ error: { formErrors: ["Unknown orchestrator model key"], fieldErrors: {} } }, 400);
+  }
+  
+  if (parsed.data.agentOverrides) {
+    for (const override of parsed.data.agentOverrides) {
+      if (!allowedKeys.has(override.modelKey)) {
+        return c.json({ error: { formErrors: [`Unknown model key: ${override.modelKey}`], fieldErrors: {} } }, 400);
+      }
+    }
   }
 
   const [debate] = await db.select().from(debates).where(eq(debates.id, id));

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import SearchableModelSelect from '@/components/SearchableModelSelect';
 import {
   ApiModel,
   ApiPersonality,
@@ -82,7 +83,7 @@ export default function ConfigurationTabPanel({
 
                 <div className="mb-2">
                   <label className="mb-1 block text-xs text-muted-foreground">Model</label>
-                  <Select
+                  <SearchableModelSelect
                     value={modelValue}
                     onValueChange={(value) =>
                       onLaneSettingsChange(lane.id, {
@@ -90,20 +91,8 @@ export default function ConfigurationTabPanel({
                         modelKey: value,
                       })
                     }
-                  >
-                    <SelectTrigger className="w-full" size="sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {modelOptions.map((opt) => (
-                          <SelectItem key={opt.key} value={opt.key}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                    modelOptions={modelOptions}
+                  />
                 </div>
 
                 <div>

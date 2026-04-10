@@ -3,15 +3,8 @@
 import { useEffect, useState } from 'react';
 import { LoaderCircle, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import SearchableModelSelect from '@/components/SearchableModelSelect';
 import { generatePersonality } from '@/lib/api';
 import { ApiModel, ApiPersonality } from '@/types/ui';
 
@@ -87,24 +80,13 @@ export default function PersonalityTabPanel({
 
         <div className="mb-3">
           <label className="mb-1 block text-xs text-muted-foreground">Generate with</label>
-          <Select
+          <SearchableModelSelect
             value={generatorModelKey}
             onValueChange={setGeneratorModelKey}
+            modelOptions={modelOptions}
             disabled={isGenerating || modelOptions.length === 0}
-          >
-            <SelectTrigger className="w-full" size="sm">
-              <SelectValue placeholder="Choose model" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {modelOptions.map((opt) => (
-                  <SelectItem key={opt.key} value={opt.key}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+            placeholder="Choose model"
+          />
         </div>
 
         <Button

@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { seedPersonalityPresets } from "./lib/personality.js";
-import { AVAILABLE_MODELS, DEFAULT_MODEL_KEY } from "./lib/models/registry.js";
+import { getCatalog } from "./lib/models/catalog-cache.js";
 import debatesRouter from "./routes/debates.js";
 import personalitiesRouter from "./routes/personalities.js";
 import streamRouter from "./routes/stream.js";
@@ -61,10 +61,10 @@ app.get("/health", (c) =>
 );
 
 // ─── Available models ────────────────────────────────────────
-app.get("/api/models", (c) => c.json({
-  models: AVAILABLE_MODELS,
-  defaultModelKey: DEFAULT_MODEL_KEY,
-}));
+app.get("/api/models", async (c) => {
+  const catalog = await getCatalog();
+  return c.json(catalog);
+});
 
 // ─── Routes ──────────────────────────────────────────────────
 app.route("/api/debates", debatesRouter);

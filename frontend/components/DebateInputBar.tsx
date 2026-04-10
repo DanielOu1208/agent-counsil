@@ -53,9 +53,7 @@ export default function DebateInputBar({ onSendMessage, disabled = false }: Deba
             </Button>
           </div>
         </div>
-        <p className="mt-1.5 text-center text-xs text-muted-foreground">
-          Press Enter to send, Shift+Enter for new line
-        </p>
+
       </CardContent>
     </Card>
   );

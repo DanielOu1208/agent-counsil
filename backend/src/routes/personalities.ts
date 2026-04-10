@@ -4,7 +4,8 @@ import { v4 as uuid } from "uuid";
 import { db } from "../db/client.js";
 import { personalityPresets } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { AVAILABLE_MODELS, getModelAdapter } from "../lib/models/registry.js";
+import { getCatalog } from "../lib/models/catalog-cache.js";
+import { getModelAdapter } from "../lib/models/registry.js";
 import { personalitySchema } from "../lib/personalitySchema.js";
 
 const app = new Hono();
@@ -149,7 +150,10 @@ app.post("/generate", async (c) => {
   }
 
   const { brief, modelKey } = parsed.data;
-  const selectedModel = AVAILABLE_MODELS.find((model) => model.key === modelKey);
+  
+  // Runtime catalog membership check
+  const catalog = await getCatalog();
+  const selectedModel = catalog.models.find((model) => model.key === modelKey);
 
   if (!selectedModel) {
     return c.json({ error: `Unknown model key: ${modelKey}` }, 400);
