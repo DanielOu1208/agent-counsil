@@ -4,8 +4,8 @@ import { v4 as uuid } from "uuid";
 import { db } from "../db/client.js";
 import { personalityPresets } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { getCatalog } from "../lib/models/catalog-cache.js";
 import { getModelAdapter } from "../lib/models/registry.js";
+import { validateModelKeys } from "../lib/models/validation.js";
 import { personalitySchema } from "../lib/personalitySchema.js";
 
 const app = new Hono();
@@ -150,13 +150,11 @@ app.post("/generate", async (c) => {
   }
 
   const { brief, modelKey } = parsed.data;
-  
-  // Runtime catalog membership check
-  const catalog = await getCatalog();
-  const selectedModel = catalog.models.find((model) => model.key === modelKey);
 
-  if (!selectedModel) {
-    return c.json({ error: `Unknown model key: ${modelKey}` }, 400);
+  // Runtime catalog membership check
+  const validation = await validateModelKeys([modelKey]);
+  if (!validation.valid) {
+    return c.json({ error: `Unknown model key: ${validation.invalidKeys[0]}` }, 400);
   }
 
   try {
@@ -208,7 +206,7 @@ app.post("/generate", async (c) => {
       isUserCreated: true,
       createdAt: now,
       updatedAt: now,
-      generatedByModelKey: selectedModel.key,
+      generatedByModelKey: modelKey,
     }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown generation error";

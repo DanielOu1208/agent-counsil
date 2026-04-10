@@ -45,6 +45,7 @@ export interface ChatMessage {
 export interface ModelOptions {
   temperature?: number;
   maxTokens?: number;
+  onUsage?: (usage: UsageReport) => void;
 }
 
 export interface ModelAdapter {
@@ -52,6 +53,13 @@ export interface ModelAdapter {
     messages: ChatMessage[],
     options?: ModelOptions,
   ): AsyncIterable<string>;
+}
+
+// Usage callback for model adapters to report token usage
+export interface UsageReport {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 // SSE event types emitted during debate execution
@@ -81,4 +89,16 @@ export type DebateEvent =
     }
   | { type: "phase:changed"; data: { phase: RunPhase; runId: string } }
   | { type: "run:complete"; data: { runId: string; debateId: string } }
-  | { type: "run:error"; data: { runId: string; error: string } };
+  | { type: "run:error"; data: { runId: string; error: string } }
+  | {
+      type: "usage:updated";
+      data: {
+        debateId: string;
+        runId: string;
+        modelKey: string;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        estimatedCostUsd: number | null;
+      };
+    };

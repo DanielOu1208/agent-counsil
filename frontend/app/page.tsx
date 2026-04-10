@@ -79,6 +79,16 @@ type EdgeCreatedEventPayload = {
   edgeType: 'responds_to' | 'criticizes' | 'supports' | 'summarizes' | 'regenerated_from' | 'spawned_by_orchestrator';
 };
 
+type UsageUpdatedEventPayload = {
+  debateId: string;
+  runId: string;
+  modelKey: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+};
+
 function toEdgeRelationKey(edge: {
   fromNodeId: string;
   toNodeId: string;
@@ -151,6 +161,12 @@ export default function Home() {
     }>
   >([]);
   const [agentLaneById, setAgentLaneById] = useState<Record<string, LaneId>>({});
+  
+  // Session usage tracking (non-persistent)
+  const [sessionTotalTokens, setSessionTotalTokens] = useState(0);
+  const [sessionTotalCost, setSessionTotalCost] = useState<number | null>(null);
+  const [sessionHasUnknownCost, setSessionHasUnknownCost] = useState(false);
+  
   const eventSourceRef = useRef<EventSource | null>(null);
   const chunkBufferRef = useRef<Map<string, string>>(new Map());
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -247,6 +263,12 @@ export default function Home() {
     );
 
     flushTimerRef.current = null;
+  }, []);
+
+  const resetSessionUsage = useCallback(() => {
+    setSessionTotalTokens(0);
+    setSessionTotalCost(null);
+    setSessionHasUnknownCost(false);
   }, []);
 
   const refreshGraph = useCallback(
@@ -388,6 +410,22 @@ export default function Home() {
         setStatus('errored');
       });
 
+      source.addEventListener('usage:updated', (event) => {
+        const payload = parseEventData<UsageUpdatedEventPayload>(event);
+        if (!payload) return;
+
+        // Accumulate session totals
+        setSessionTotalTokens((prev) => prev + payload.totalTokens);
+
+        const cost = payload.estimatedCostUsd;
+        if (cost === null) {
+          // Mark that we have unknown cost for this session
+          setSessionHasUnknownCost(true);
+        } else {
+          setSessionTotalCost((prev) => (prev ?? 0) + cost);
+        }
+      });
+
       source.onerror = () => {
         // EventSource can fire onerror for transient reconnects or intentional closes.
         // Avoid surfacing this as a hard console error in Next.js dev overlay.
@@ -459,6 +497,8 @@ export default function Home() {
       setDebateId(created.debateId);
       setGraphNodes([]);
       setGraphEdges([]);
+      // Reset session usage tracker for new debate
+      resetSessionUsage();
 
       openSse(created.debateId);
       await refreshGraph(created.debateId);
@@ -475,6 +515,7 @@ export default function Home() {
       openSse,
       personalityOptions,
       refreshGraph,
+      resetSessionUsage,
     ],
   );
 
@@ -503,7 +544,9 @@ export default function Home() {
     setGraphNodes([]);
     setGraphEdges([]);
     setStatus('idle');
-  }, [closeStream]);
+    // Reset session usage tracker
+    resetSessionUsage();
+  }, [closeStream, resetSessionUsage]);
 
   const handleLaneSettingsChange = useCallback((laneId: LaneId, settings: LaneSettings) => {
     setLaneSettings((prev) => ({
@@ -560,6 +603,8 @@ export default function Home() {
           setDebateId(null);
           setGraphNodes([]);
           setGraphEdges([]);
+          // Reset session usage tracker for new debate
+          resetSessionUsage();
           setStatus('starting');
           await startNewDebate(trimmed);
           return;
@@ -596,6 +641,7 @@ export default function Home() {
       laneSettings,
       modelOptions,
       refreshGraph,
+      resetSessionUsage,
       startNewDebate,
       status,
     ],
@@ -647,6 +693,10 @@ export default function Home() {
       onRemoveAgent={handleRemoveAgent}
       canAddAgent={agentCount < MAX_AGENT_COUNT}
       canRemoveAgent={agentCount > MIN_AGENT_COUNT}
+      showSessionUsageTracker={Boolean(debateId)}
+      sessionTotalTokens={sessionTotalTokens}
+      sessionTotalCost={sessionTotalCost}
+      sessionHasUnknownCost={sessionHasUnknownCost}
     />
   );
 }

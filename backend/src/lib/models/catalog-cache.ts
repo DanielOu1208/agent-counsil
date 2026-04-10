@@ -12,9 +12,19 @@ export interface Catalog {
   defaultModelKey: string;
 }
 
+// Pricing info from OpenRouter (per million tokens, in USD)
+interface ModelPricing {
+  promptPerMillion?: number;
+  completionPerMillion?: number;
+}
+
 interface OpenRouterModel {
   id: string;
   name?: string;
+  pricing?: {
+    prompt?: string; // e.g. "0.000001" per token
+    completion?: string;
+  };
 }
 
 interface OpenRouterResponse {
@@ -25,6 +35,9 @@ interface OpenRouterResponse {
 let cachedCatalog: Catalog | null = null;
 let lastFetchedAt: number = 0;
 let inFlightRefreshPromise: Promise<Catalog> | null = null;
+
+// Pricing cache: modelKey -> pricing info
+const pricingCache = new Map<string, ModelPricing>();
 
 // TTL = 6 hours in milliseconds
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -69,6 +82,32 @@ async function fetchOpenRouterModels(): Promise<OpenRouterModel[]> {
  * Key format: "openrouter:<model-id>"
  */
 function normalizeModels(models: OpenRouterModel[]): ApiModel[] {
+  pricingCache.clear();
+  
+  for (const model of models) {
+    const modelKey = `openrouter:${model.id}`;
+    const pricing: ModelPricing = {};
+    
+    if (model.pricing?.prompt) {
+      // OpenRouter pricing is per token, convert to per million tokens
+      const perToken = parseFloat(model.pricing.prompt);
+      if (!isNaN(perToken)) {
+        pricing.promptPerMillion = perToken * 1_000_000;
+      }
+    }
+    
+    if (model.pricing?.completion) {
+      const perToken = parseFloat(model.pricing.completion);
+      if (!isNaN(perToken)) {
+        pricing.completionPerMillion = perToken * 1_000_000;
+      }
+    }
+    
+    if (pricing.promptPerMillion !== undefined || pricing.completionPerMillion !== undefined) {
+      pricingCache.set(modelKey, pricing);
+    }
+  }
+  
   return models.map((model) => ({
     key: `openrouter:${model.id}`,
     label: model.name ?? model.id,
@@ -189,4 +228,39 @@ export async function getCatalog(): Promise<Catalog> {
   } finally {
     inFlightRefreshPromise = null;
   }
+}
+
+/**
+ * Estimate model cost from cached pricing data.
+ * Returns null if pricing is unavailable for the model.
+ * 
+ * @param modelKey - Model key (e.g., "openrouter:stepfun/step-3.5-flash")
+ * @param promptTokens - Number of prompt tokens
+ * @param completionTokens - Number of completion tokens
+ * @returns Estimated cost in USD, or null if pricing unavailable
+ */
+export function estimateModelCostUsd(
+  modelKey: string,
+  promptTokens: number,
+  completionTokens: number,
+): number | null {
+  // Only OpenRouter models have cached pricing
+  if (!modelKey.startsWith("openrouter:")) {
+    return null;
+  }
+  
+  const pricing = pricingCache.get(modelKey);
+  if (!pricing) {
+    return null;
+  }
+  
+  // If we don't have both pricing values, we can't give a complete estimate
+  if (pricing.promptPerMillion === undefined || pricing.completionPerMillion === undefined) {
+    return null;
+  }
+  
+  const promptCost = (promptTokens / 1_000_000) * pricing.promptPerMillion;
+  const completionCost = (completionTokens / 1_000_000) * pricing.completionPerMillion;
+  
+  return promptCost + completionCost;
 }

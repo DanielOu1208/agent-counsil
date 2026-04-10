@@ -4,7 +4,8 @@ import { nodes, edges, agentJobs } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 import { getModelAdapter } from "../models/registry.js";
 import { emitDebateEvent } from "../events.js";
-import type { ChatMessage, SpeakerType, NodeType, EdgeType } from "../../types.js";
+import { estimateModelCostUsd } from "../models/catalog-cache.js";
+import type { ChatMessage, SpeakerType, NodeType, EdgeType, UsageReport } from "../../types.js";
 
 interface ExecuteJobParams {
   runId: string;
@@ -120,6 +121,9 @@ export async function executeAgentJob(params: ExecuteJobParams): Promise<JobResu
 
   let fullContent = "";
   const MAX_RETRIES = 3;
+  
+  // Capture usage reported by adapter (using object reference for TypeScript compatibility)
+  const capturedUsage: { value: UsageReport | null } = { value: null };
 
   try {
     const adapter = getModelAdapter(modelKey);
@@ -128,7 +132,12 @@ export async function executeAgentJob(params: ExecuteJobParams): Promise<JobResu
     let lastError: unknown;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        const stream = adapter.generateStream(messages);
+        const stream = adapter.generateStream(messages, {
+          temperature: 0.7,
+          onUsage: (usage) => {
+            capturedUsage.value = usage;
+          },
+        });
         for await (const chunk of stream) {
           fullContent += chunk;
           emitDebateEvent(debateId, {
@@ -172,6 +181,29 @@ export async function executeAgentJob(params: ExecuteJobParams): Promise<JobResu
     emitDebateEvent(debateId, {
       type: "node:complete",
       data: { nodeId, content: fullContent },
+    });
+
+    // Emit usage:updated event if usage was reported
+    // Always emit with zeros if no usage, for predictable frontend behavior
+    const usageReport = capturedUsage.value;
+    const promptTokens = usageReport?.promptTokens ?? 0;
+    const completionTokens = usageReport?.completionTokens ?? 0;
+    const totalTokens = usageReport?.totalTokens ?? 0;
+    const estimatedCostUsd = usageReport
+      ? estimateModelCostUsd(modelKey, promptTokens, completionTokens)
+      : null;
+
+    emitDebateEvent(debateId, {
+      type: "usage:updated",
+      data: {
+        debateId,
+        runId,
+        modelKey,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        estimatedCostUsd,
+      },
     });
 
     return { nodeId, jobId, content: fullContent };

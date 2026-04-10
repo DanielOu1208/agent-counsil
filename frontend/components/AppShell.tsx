@@ -22,6 +22,18 @@ import {
   WORKSPACE_FIXED_TABS,
 } from '@/types/ui';
 
+// Helper to format large numbers with commas
+function formatNumber(n: number): string {
+  return n.toLocaleString();
+}
+
+// Helper to format cost
+function formatCost(cost: number | null, hasUnknown: boolean): string {
+  if (hasUnknown) return '—';
+  if (cost === null) return '$0.00';
+  return `$${cost.toFixed(4)}`;
+}
+
 interface AppShellProps {
   laneConfigs: LaneConfig[];
   laneSettings: Record<LaneId, LaneSettings>;
@@ -42,6 +54,10 @@ interface AppShellProps {
   onRemoveAgent: (laneId: LaneId) => void;
   canAddAgent: boolean;
   canRemoveAgent: boolean;
+  showSessionUsageTracker: boolean;
+  sessionTotalTokens: number;
+  sessionTotalCost: number | null;
+  sessionHasUnknownCost: boolean;
 }
 
 export default function AppShell({
@@ -64,6 +80,10 @@ export default function AppShell({
   onRemoveAgent,
   canAddAgent,
   canRemoveAgent,
+  showSessionUsageTracker,
+  sessionTotalTokens,
+  sessionTotalCost,
+  sessionHasUnknownCost,
 }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [leftActiveTabId, setLeftActiveTabId] = useState<WorkspaceFixedTabId>(DEFAULT_WORKSPACE_TAB_ID);
@@ -163,6 +183,25 @@ export default function AppShell({
             openNodeIds={openNodeIds}
             onOpenNodeTab={handleOpenNodeTab}
           />
+          
+          {/* Session usage tracker - bottom-left overlay */}
+          {showSessionUsageTracker && (
+            <div className="absolute bottom-2 left-2 z-10 flex items-baseline gap-3 rounded-none border border-border bg-card px-3 py-2 text-xs">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-muted-foreground">Tokens</span>
+                <span className="font-mono tabular-nums text-foreground">
+                  {formatNumber(sessionTotalTokens)}
+                </span>
+              </div>
+              <div className="h-3 w-px shrink-0 bg-border" aria-hidden />
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-muted-foreground">Cost</span>
+                <span className="font-mono tabular-nums text-foreground">
+                  {formatCost(sessionTotalCost, sessionHasUnknownCost)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div
