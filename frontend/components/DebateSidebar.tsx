@@ -1,10 +1,7 @@
 'use client';
 
 import {
-  LayoutDashboard,
   MessageSquare,
-  Settings,
-  History,
   HelpCircle,
   Circle,
   Play,
@@ -14,11 +11,13 @@ import {
   PlusCircle,
   ChevronLeft,
   ChevronRight,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DebateStatus } from '@/types/ui';
+import { DebateListItem } from '@/lib/api';
 
 interface DebateSidebarProps {
   status: DebateStatus;
@@ -27,6 +26,52 @@ interface DebateSidebarProps {
   disableFinalize: boolean;
   collapsed: boolean;
   onCollapseToggle: () => void;
+  // Debate list props
+  debates: DebateListItem[];
+  debatesLoading: boolean;
+  debatesError: string | null;
+  activeDebateId: string | null;
+  loadingDebateId: string | null;
+  onSelectDebate: (debateId: string) => void;
+}
+
+function getDayGroup(dateString: string): 'today' | 'yesterday' | 'older' {
+  const date = new Date(dateString);
+  const now = new Date();
+  
+  // Reset to start of day in local timezone
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const itemDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  
+  if (itemDate.getTime() === today.getTime()) {
+    return 'today';
+  } else if (itemDate.getTime() === yesterday.getTime()) {
+    return 'yesterday';
+  }
+  return 'older';
+}
+
+function safeTimestamp(value: string): number {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function getStatusIcon(status: DebateListItem['status']) {
+  switch (status) {
+    case 'running':
+      return <Loader2 className="size-3 animate-spin text-blue-400" />;
+    case 'completed':
+      return <CheckCircle2 className="size-3 text-green-400" />;
+    case 'errored':
+      return <AlertCircle className="size-3 text-red-400" />;
+    case 'waiting_user':
+    case 'draft':
+    default:
+      return <Circle className="size-3 text-muted-foreground" />;
+  }
 }
 
 export default function DebateSidebar({
@@ -36,6 +81,12 @@ export default function DebateSidebar({
   disableFinalize,
   collapsed,
   onCollapseToggle,
+  debates = [],
+  debatesLoading = false,
+  debatesError = null,
+  activeDebateId = null,
+  loadingDebateId = null,
+  onSelectDebate = () => {},
 }: DebateSidebarProps) {
   const statusColor: Record<DebateStatus, string> = {
     idle: 'text-muted-foreground',
@@ -53,6 +104,23 @@ export default function DebateSidebar({
     errored: 'Error',
   };
 
+  // Group debates by day
+  const groupedDebates = {
+    today: [] as DebateListItem[],
+    yesterday: [] as DebateListItem[],
+    older: [] as DebateListItem[],
+  };
+  
+  debates.forEach((debate) => {
+    const group = getDayGroup(debate.updatedAt);
+    groupedDebates[group].push(debate);
+  });
+
+  // Sort each group by updatedAt desc
+  Object.values(groupedDebates).forEach((group) => {
+    group.sort((a, b) => safeTimestamp(b.updatedAt) - safeTimestamp(a.updatedAt));
+  });
+
   return (
     <aside
       className={`${
@@ -68,7 +136,7 @@ export default function DebateSidebar({
                 <MessageSquare className="size-5 text-foreground" />
               </div>
               <div>
-                <h1 className="text-sm font-semibold text-foreground">Debate Arena</h1>
+                <h1 className="text-sm font-semibold text-foreground">Agent Counsil</h1>
                 <span className="text-xs text-muted-foreground">v1.0</span>
               </div>
             </>
@@ -91,80 +159,7 @@ export default function DebateSidebar({
 
       <Separator />
 
-      {/* Navigation */}
-      <nav className="flex-1 py-4">
-        {!collapsed && (
-          <div className="px-4 mb-2">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2">
-              Navigation
-            </span>
-          </div>
-        )}
-        <div className="flex flex-col gap-0.5 px-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                className={`${
-                  collapsed ? 'justify-center px-2' : 'justify-start gap-3'
-                } text-primary w-full`}
-              >
-                <LayoutDashboard className="size-4" />
-                {!collapsed && <span className="text-sm">Dashboard</span>}
-              </Button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">Dashboard</TooltipContent>}
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                className={`${
-                  collapsed ? 'justify-center px-2' : 'justify-start gap-3'
-                } text-muted-foreground w-full`}
-              >
-                <MessageSquare className="size-4" />
-                {!collapsed && <span className="text-sm">Debates</span>}
-              </Button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">Debates</TooltipContent>}
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                className={`${
-                  collapsed ? 'justify-center px-2' : 'justify-start gap-3'
-                } text-muted-foreground w-full`}
-              >
-                <History className="size-4" />
-                {!collapsed && <span className="text-sm">History</span>}
-              </Button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">History</TooltipContent>}
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                className={`${
-                  collapsed ? 'justify-center px-2' : 'justify-start gap-3'
-                } text-muted-foreground w-full`}
-              >
-                <Settings className="size-4" />
-                {!collapsed && <span className="text-sm">Settings</span>}
-              </Button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">Settings</TooltipContent>}
-          </Tooltip>
-        </div>
-      </nav>
-
       {/* Session Controls */}
-      <Separator />
       <div className="p-3">
         {!collapsed && (
           <div className="mb-2">
@@ -250,6 +245,151 @@ export default function DebateSidebar({
           )}
         </div>
       </div>
+
+      <Separator />
+
+      {/* Past Debates */}
+      <nav className="flex-1 py-2 overflow-y-auto min-h-0">
+        {!collapsed && (
+          <div className="px-4 mb-2">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider px-2">
+              Past Debates
+            </span>
+          </div>
+        )}
+
+        {collapsed ? (
+          // Collapsed view - show icon only
+          <div className="flex flex-col gap-0.5 px-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="justify-center px-2 text-muted-foreground"
+                >
+                  <FileText className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Past Debates</TooltipContent>
+            </Tooltip>
+          </div>
+        ) : (
+          // Expanded view - show grouped debates
+          <div className="flex flex-col gap-0.5 px-2">
+            {/* Loading state */}
+            {debatesLoading && (
+              <div className="px-2 py-3 text-xs text-muted-foreground flex items-center gap-2">
+                <Loader2 className="size-3 animate-spin" />
+                <span>Loading debates...</span>
+              </div>
+            )}
+
+            {/* Error state */}
+            {debatesError && (
+              <div className="px-2 py-3 text-xs text-red-400 flex items-start gap-2">
+                <AlertCircle className="size-3 mt-0.5 flex-shrink-0" />
+                <span>{debatesError}</span>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!debatesLoading && !debatesError && debates.length === 0 && (
+              <div className="px-2 py-3 text-xs text-muted-foreground">
+                No past debates yet
+              </div>
+            )}
+
+            {/* Debate groups */}
+            {!debatesLoading && !debatesError && debates.length > 0 && (
+              <>
+                {/* Today */}
+                {groupedDebates.today.length > 0 && (
+                  <div className="mb-2">
+                    <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      Today
+                    </div>
+                    {groupedDebates.today.map((debate) => (
+                      <button
+                        key={debate.id}
+                        onClick={() => onSelectDebate(debate.id)}
+                        disabled={loadingDebateId !== null}
+                        className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 transition-colors ${
+                          activeDebateId === debate.id
+                            ? 'bg-primary/10 text-primary'
+                            : 'hover:bg-muted text-foreground'
+                        } ${loadingDebateId === debate.id ? 'opacity-50' : ''}`}
+                      >
+                        {loadingDebateId === debate.id ? (
+                          <Loader2 className="size-3 animate-spin flex-shrink-0" />
+                        ) : (
+                          getStatusIcon(debate.status)
+                        )}
+                        <span className="truncate flex-1">{debate.title || 'Untitled'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Yesterday */}
+                {groupedDebates.yesterday.length > 0 && (
+                  <div className="mb-2">
+                    <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      Yesterday
+                    </div>
+                    {groupedDebates.yesterday.map((debate) => (
+                      <button
+                        key={debate.id}
+                        onClick={() => onSelectDebate(debate.id)}
+                        disabled={loadingDebateId !== null}
+                        className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 transition-colors ${
+                          activeDebateId === debate.id
+                            ? 'bg-primary/10 text-primary'
+                            : 'hover:bg-muted text-foreground'
+                        } ${loadingDebateId === debate.id ? 'opacity-50' : ''}`}
+                      >
+                        {loadingDebateId === debate.id ? (
+                          <Loader2 className="size-3 animate-spin flex-shrink-0" />
+                        ) : (
+                          getStatusIcon(debate.status)
+                        )}
+                        <span className="truncate flex-1">{debate.title || 'Untitled'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Older */}
+                {groupedDebates.older.length > 0 && (
+                  <div className="mb-2">
+                    <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      Older
+                    </div>
+                    {groupedDebates.older.map((debate) => (
+                      <button
+                        key={debate.id}
+                        onClick={() => onSelectDebate(debate.id)}
+                        disabled={loadingDebateId !== null}
+                        className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 transition-colors ${
+                          activeDebateId === debate.id
+                            ? 'bg-primary/10 text-primary'
+                            : 'hover:bg-muted text-foreground'
+                        } ${loadingDebateId === debate.id ? 'opacity-50' : ''}`}
+                      >
+                        {loadingDebateId === debate.id ? (
+                          <Loader2 className="size-3 animate-spin flex-shrink-0" />
+                        ) : (
+                          getStatusIcon(debate.status)
+                        )}
+                        <span className="truncate flex-1">{debate.title || 'Untitled'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </nav>
 
       {/* Footer */}
       <Separator />

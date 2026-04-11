@@ -10,8 +10,12 @@ import {
   fetchPersonalities,
   finalizeDebate,
   getApiBaseUrl,
+  getDebate,
+  listDebates,
   sendIntervention,
   startDebate,
+  BackendDebateStatus,
+  DebateListItem,
 } from '@/lib/api';
 import {
   buildAgentLanes,
@@ -30,6 +34,22 @@ const FALLBACK_MODEL_KEY = 'openrouter:stepfun/step-3.5-flash';
 const DEFAULT_AGENT_COUNT = 3;
 const MIN_AGENT_COUNT = 1;
 const MAX_AGENT_COUNT = 5;
+
+// Map backend status to frontend UI status
+function mapBackendStatusToFrontend(backendStatus: BackendDebateStatus): DebateStatus {
+  switch (backendStatus) {
+    case 'running':
+      return 'running';
+    case 'waiting_user':
+    case 'completed':
+      return 'completed';
+    case 'errored':
+      return 'errored';
+    case 'draft':
+    default:
+      return 'idle';
+  }
+}
 
 function buildInitialLaneSettings(agentCount: number): Record<LaneId, LaneSettings> {
   const settings: Record<LaneId, LaneSettings> = {
@@ -166,10 +186,20 @@ export default function Home() {
   const [sessionTotalTokens, setSessionTotalTokens] = useState(0);
   const [sessionTotalCost, setSessionTotalCost] = useState<number | null>(null);
   const [sessionHasUnknownCost, setSessionHasUnknownCost] = useState(false);
+
+  // Debate list state
+  const [debates, setDebates] = useState<DebateListItem[]>([]);
+  const [debatesLoading, setDebatesLoading] = useState(false);
+  const [debatesError, setDebatesError] = useState<string | null>(null);
+  const [loadingDebateId, setLoadingDebateId] = useState<string | null>(null);
   
   const eventSourceRef = useRef<EventSource | null>(null);
   const chunkBufferRef = useRef<Map<string, string>>(new Map());
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stale request protection - increment on each new load request
+  const loadRequestCounterRef = useRef(0);
+  // Active stream debate ID guard
+  const activeStreamDebateIdRef = useRef<string | null>(null);
 
   const handlePersonalityGenerated = useCallback((personality: ApiPersonality) => {
     setPersonalityOptions((prev) => {
@@ -239,6 +269,7 @@ export default function Home() {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    activeStreamDebateIdRef.current = null;
   }, []);
 
   const flushBufferedChunks = useCallback(() => {
@@ -269,6 +300,26 @@ export default function Home() {
     setSessionTotalTokens(0);
     setSessionTotalCost(null);
     setSessionHasUnknownCost(false);
+  }, []);
+
+  // Refresh debate list with optional silent mode
+  const refreshDebateList = useCallback(async (silent = false) => {
+    if (!silent) {
+      setDebatesLoading(true);
+    }
+    setDebatesError(null);
+    
+    try {
+      const list = await listDebates();
+      setDebates(list);
+    } catch (error) {
+      console.error('Failed to load debate list:', error);
+      setDebatesError('Failed to load debates');
+    } finally {
+      if (!silent) {
+        setDebatesLoading(false);
+      }
+    }
   }, []);
 
   const refreshGraph = useCallback(
@@ -316,16 +367,21 @@ export default function Home() {
   const openSse = useCallback(
     (targetDebateId: string) => {
       closeStream();
+      activeStreamDebateIdRef.current = targetDebateId;
       const source = new EventSource(`${getApiBaseUrl()}/api/stream/${targetDebateId}/stream`);
       eventSourceRef.current = source;
 
       source.addEventListener('phase:changed', () => {
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
         setStatus('running');
       });
 
       source.addEventListener('node:created', (event) => {
         const payload = parseEventData<CreateEventPayload>(event);
         if (!payload) return;
+
+        // Stale stream guard
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
 
         setGraphNodes((prev) => {
           if (prev.some((node) => node.id === payload.nodeId)) return prev;
@@ -350,6 +406,9 @@ export default function Home() {
         const payload = parseEventData<ChunkEventPayload>(event);
         if (!payload) return;
 
+        // Stale stream guard
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
+
         // Buffer the chunk for this node
         const existing = chunkBufferRef.current.get(payload.nodeId) ?? '';
         chunkBufferRef.current.set(payload.nodeId, existing + payload.chunk);
@@ -363,6 +422,9 @@ export default function Home() {
       source.addEventListener('node:complete', (event) => {
         const payload = parseEventData<CompleteEventPayload>(event);
         if (!payload) return;
+
+        // Stale stream guard
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
 
         // Clear any buffered chunks for this node since we have the final content
         chunkBufferRef.current.delete(payload.nodeId);
@@ -384,6 +446,9 @@ export default function Home() {
         const payload = parseEventData<EdgeCreatedEventPayload>(event);
         if (!payload) return;
 
+        // Stale stream guard
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
+
         setGraphEdges((prev) => {
           const relationKey = toEdgeRelationKey(payload);
           if (prev.some((edge) => toEdgeRelationKey(edge) === relationKey)) return prev;
@@ -402,17 +467,29 @@ export default function Home() {
       });
 
       source.addEventListener('run:complete', () => {
+        // Stale stream guard
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
+        
         setStatus('completed');
-        // No need to refresh - SSE stream already has all nodes/edges
+        // Refresh debate list after run completes
+        refreshDebateList(true);
       });
 
       source.addEventListener('run:error', () => {
+        // Stale stream guard
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
+        
         setStatus('errored');
+        // Refresh debate list after error
+        refreshDebateList(true);
       });
 
       source.addEventListener('usage:updated', (event) => {
         const payload = parseEventData<UsageUpdatedEventPayload>(event);
         if (!payload) return;
+
+        // Stale stream guard
+        if (activeStreamDebateIdRef.current !== targetDebateId) return;
 
         // Accumulate session totals
         setSessionTotalTokens((prev) => prev + payload.totalTokens);
@@ -433,8 +510,105 @@ export default function Home() {
         console.warn('SSE stream disconnected, retrying...');
       };
     },
-    [closeStream, flushBufferedChunks],
+    [closeStream, flushBufferedChunks, refreshDebateList],
   );
+
+  // Load a specific debate by ID with stale-request protection
+  const loadDebateById = useCallback(async (id: string) => {
+    // Increment counter for stale request protection
+    const currentRequestId = ++loadRequestCounterRef.current;
+    
+    setLoadingDebateId(id);
+    
+    try {
+      // Close existing stream first
+      closeStream();
+      
+      // Fetch debate detail and graph concurrently
+      const [detail, graph] = await Promise.all([
+        getDebate(id),
+        fetchGraph(id),
+      ]);
+      
+      // Stale request check - abort if a newer request came in
+      if (currentRequestId !== loadRequestCounterRef.current) {
+        return;
+      }
+      
+      // Build agent lane map from detail agents by displayOrder
+      const agentLanesMap: Record<string, LaneId> = {};
+      const sortedAgents = [...detail.agents].sort((a, b) => a.displayOrder - b.displayOrder);
+      const clampedAgentCount = Math.max(MIN_AGENT_COUNT, Math.min(sortedAgents.length, MAX_AGENT_COUNT));
+      const activeAgents = sortedAgents.slice(0, clampedAgentCount);
+      const personalityByName = new Map(
+        personalityOptions.map((personality) => [personality.name, personality.id]),
+      );
+      const modelFallback = defaultModelKey || modelOptions[0]?.key || FALLBACK_MODEL_KEY;
+
+      activeAgents.forEach((agent, index) => {
+        agentLanesMap[agent.id] = `debater-${String.fromCharCode(97 + index)}`;
+      });
+
+      // Set agent count based on loaded agents
+      setAgentCount(clampedAgentCount);
+      setAgentLaneById(agentLanesMap);
+
+      // Build lane settings from loaded agents
+      const loadedLaneSettings = buildInitialLaneSettings(clampedAgentCount);
+      loadedLaneSettings.orchestrator = {
+        modelKey: detail.orchestratorModelKey || laneSettings.orchestrator?.modelKey || modelFallback,
+        personalityId: laneSettings.orchestrator?.personalityId ?? '',
+      };
+      activeAgents.forEach((agent, index) => {
+        const laneId = `debater-${String.fromCharCode(97 + index)}`;
+        loadedLaneSettings[laneId] = {
+          modelKey: agent.modelKey,
+          personalityId:
+            personalityByName.get(agent.personality.name) ||
+            laneSettings[laneId]?.personalityId ||
+            '',
+        };
+      });
+      setLaneSettings(loadedLaneSettings);
+      
+      // Set the debate ID and graph
+      setDebateId(detail.id);
+      setGraphNodes(graph.nodes);
+      setGraphEdges(graph.edges);
+      
+      // Map status
+      const frontendStatus = mapBackendStatusToFrontend(detail.status);
+      setStatus(frontendStatus);
+      
+      // Reset session usage for loaded debate
+      resetSessionUsage();
+      
+      // Open SSE only if debate is running
+      if (detail.status === 'running') {
+        openSse(detail.id);
+      }
+    } catch (error) {
+      // Stale request check - only show error if this is still the current request
+      if (currentRequestId !== loadRequestCounterRef.current) {
+        return;
+      }
+      console.error('Failed to load debate:', error);
+      setDebatesError('Failed to load debate');
+    } finally {
+      // Only clear loading if this is still the current request
+      if (currentRequestId === loadRequestCounterRef.current) {
+        setLoadingDebateId(null);
+      }
+    }
+  }, [
+    closeStream,
+    defaultModelKey,
+    laneSettings,
+    modelOptions,
+    openSse,
+    personalityOptions,
+    resetSessionUsage,
+  ]);
 
   const startNewDebate = useCallback(
     async (goal: string) => {
@@ -504,6 +678,9 @@ export default function Home() {
       await refreshGraph(created.debateId);
       await startDebate(created.debateId);
       setStatus('running');
+      
+      // Refresh debate list after creating new debate
+      refreshDebateList(true);
     },
     [
       agentLanes,
@@ -516,6 +693,7 @@ export default function Home() {
       personalityOptions,
       refreshGraph,
       resetSessionUsage,
+      refreshDebateList,
     ],
   );
 
@@ -524,21 +702,27 @@ export default function Home() {
       hydrateOptions().catch((error) => {
         console.error('Failed to fetch model/personality options:', error);
       });
+      // Fetch debate list on mount
+      refreshDebateList().catch((error) => {
+        console.error('Failed to fetch debate list:', error);
+      });
     }, 0);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [hydrateOptions]);
+  }, [hydrateOptions, refreshDebateList]);
 
   useEffect(() => {
     return () => {
       closeStream();
+      activeStreamDebateIdRef.current = null;
     };
   }, [closeStream]);
 
   const handleNewDebate = useCallback(() => {
     closeStream();
+    activeStreamDebateIdRef.current = null;
     setDebateId(null);
     setAgentLaneById({});
     setGraphNodes([]);
@@ -652,11 +836,13 @@ export default function Home() {
 
     try {
       await finalizeDebate(debateId);
+      // Refresh debate list after finalize
+      refreshDebateList(true);
     } catch (error) {
       console.error('Finalize request failed:', error);
       setStatus('errored');
     }
-  }, [debateId, status]);
+  }, [debateId, status, refreshDebateList]);
 
   const messages = useMemo<ReasoningMessage[]>(() => {
     return [...graphNodes]
@@ -697,6 +883,12 @@ export default function Home() {
       sessionTotalTokens={sessionTotalTokens}
       sessionTotalCost={sessionTotalCost}
       sessionHasUnknownCost={sessionHasUnknownCost}
+      debates={debates}
+      debatesLoading={debatesLoading}
+      debatesError={debatesError}
+      activeDebateId={debateId}
+      loadingDebateId={loadingDebateId}
+      onSelectDebate={loadDebateById}
     />
   );
 }

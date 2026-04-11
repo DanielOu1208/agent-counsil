@@ -126,3 +126,56 @@ export function finalizeDebate(debateId: string): Promise<unknown> {
     body: JSON.stringify({}),
   });
 }
+
+// Backend debate status enum (from server)
+export type BackendDebateStatus = 'draft' | 'running' | 'waiting_user' | 'completed' | 'errored';
+
+// Debate list item for sidebar
+export interface DebateListItem {
+  id: string;
+  title: string;
+  status: BackendDebateStatus;
+  updatedAt: string;
+}
+
+// Agent detail within DebateDetail
+export interface DebateDetailAgent {
+  id: string;
+  name: string;
+  modelKey: string;
+  displayOrder: number;
+  personality: {
+    name: string;
+    role: string;
+    tone: string;
+    goal: string;
+    worldview: string;
+    debateStyle: string;
+    riskTolerance: 'low' | 'medium' | 'high';
+    verbosity: 'short' | 'medium' | 'long';
+    preferredOutputFormat: string;
+    constraints: string[];
+    customInstructions: string;
+    avatarSeed?: string;
+  };
+}
+
+// Full debate detail for loading a past debate
+export interface DebateDetail {
+  id: string;
+  title: string;
+  goal: string;
+  status: BackendDebateStatus;
+  orchestratorModelKey?: string | null;
+  agents: DebateDetailAgent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listDebates(): Promise<DebateListItem[]> {
+  return request<DebateListItem[]>('/api/debates');
+}
+
+export function getDebate(debateId: string): Promise<DebateDetail> {
+  return request<DebateDetail>(`/api/debates/${debateId}`);
+}

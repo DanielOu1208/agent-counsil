@@ -21,6 +21,7 @@ import {
   WorkspaceNodeTab,
   WORKSPACE_FIXED_TABS,
 } from '@/types/ui';
+import { DebateListItem } from '@/lib/api';
 
 // Helper to format large numbers with commas
 function formatNumber(n: number): string {
@@ -58,6 +59,13 @@ interface AppShellProps {
   sessionTotalTokens: number;
   sessionTotalCost: number | null;
   sessionHasUnknownCost: boolean;
+  // Debate list props for sidebar
+  debates: DebateListItem[];
+  debatesLoading: boolean;
+  debatesError: string | null;
+  activeDebateId: string | null;
+  loadingDebateId: string | null;
+  onSelectDebate: (debateId: string) => void;
 }
 
 export default function AppShell({
@@ -84,6 +92,12 @@ export default function AppShell({
   sessionTotalTokens,
   sessionTotalCost,
   sessionHasUnknownCost,
+  debates,
+  debatesLoading,
+  debatesError,
+  activeDebateId,
+  loadingDebateId,
+  onSelectDebate,
 }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [leftActiveTabId, setLeftActiveTabId] = useState<WorkspaceFixedTabId>(DEFAULT_WORKSPACE_TAB_ID);
@@ -171,6 +185,12 @@ export default function AppShell({
         disableFinalize={disableFinalize}
         collapsed={sidebarCollapsed}
         onCollapseToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        debates={debates}
+        debatesLoading={debatesLoading}
+        debatesError={debatesError}
+        activeDebateId={activeDebateId}
+        loadingDebateId={loadingDebateId}
+        onSelectDebate={onSelectDebate}
       />
 
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
