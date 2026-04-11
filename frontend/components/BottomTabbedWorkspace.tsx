@@ -37,6 +37,8 @@ interface BottomTabbedWorkspaceProps {
   onSplitActivePaneRight: () => void;
   onFocusRightPaneByIndex: (index: number) => void;
   rightPaneNotice?: string | null;
+  onMoveRightTabToPane?: (tabId: string, fromPaneId: string, toPaneId: string, toIndex?: number) => void;
+  onReorderRightTabInPane?: (paneId: string, fromIndex: number, toIndex: number) => void;
   laneConfigs: LaneConfig[];
   laneSettings: Record<LaneId, LaneSettings>;
   onLaneSettingsChange: (laneId: LaneId, settings: LaneSettings) => void;
@@ -65,6 +67,8 @@ export default function BottomTabbedWorkspace({
   onSplitActivePaneRight,
   onFocusRightPaneByIndex,
   rightPaneNotice,
+  onMoveRightTabToPane,
+  onReorderRightTabInPane,
   laneConfigs,
   laneSettings,
   onLaneSettingsChange,
@@ -134,8 +138,8 @@ export default function BottomTabbedWorkspace({
   }, [onFocusRightPaneByIndex, onSplitActivePaneRight]);
 
   return (
-    <section className="grid h-full min-h-0 grid-cols-10 border-t border-border bg-popover/95 backdrop-blur-sm">
-      <div className="col-span-3 flex min-h-0 flex-col border-r border-border">
+    <section className="grid h-full min-h-0 grid-cols-4 border-t border-border bg-popover/95 backdrop-blur-sm">
+      <div className="col-span-1 flex min-h-0 flex-col border-r border-border">
         <div className="overflow-x-auto border-b border-border bg-muted/40" role="tablist" aria-label="Left workspace tabs">
           <div className="flex min-w-max items-end gap-px px-2 pt-1">
             {leftTabs.map((tab) => {
@@ -212,7 +216,7 @@ export default function BottomTabbedWorkspace({
         </div>
         </div>
 
-      <div className="col-span-7 flex min-h-0 flex-col">
+      <div className="col-span-3 flex min-h-0 flex-col">
         <NodeDetailsPaneGroup
           layout={rightLayout}
           tabsById={rightTabsById}
@@ -223,6 +227,8 @@ export default function BottomTabbedWorkspace({
           onCloseTab={onCloseRightTab}
           onClosePane={onCloseRightPane}
           onSplitTab={onSplitRightTab}
+          onMoveTabToPane={onMoveRightTabToPane}
+          onReorderTabInPane={onReorderRightTabInPane}
         />
       </div>
     </section>

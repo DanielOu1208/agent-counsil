@@ -12,8 +12,6 @@ import {
   WorkspaceSplitEdge,
 } from '@/types/ui';
 
-const MIN_PANE_WIDTH_PX = 260;
-
 interface NodeDetailsPaneProps {
   pane: WorkspaceRightPane;
   paneIndex: number;
@@ -23,6 +21,7 @@ interface NodeDetailsPaneProps {
   detailsByTabId: Record<string, WorkspaceNodeDetails>;
   draggingTabId: string | null;
   hoveredDropEdge: WorkspaceSplitEdge | null;
+  hoveredMergeZone: boolean;
   canSplit: boolean;
   onActivatePane: (paneId: string) => void;
   onActivateTab: (paneId: string, tabId: string) => void;
@@ -34,11 +33,11 @@ interface NodeDetailsPaneProps {
   onBeginTabDrag: (params: {
     paneId: string;
     tabId: string;
+    tabIndex: number;
     pointerId: number;
     startX: number;
     startY: number;
   }) => void;
-  onSplitRejected: (message: string) => void;
 }
 
 export default function NodeDetailsPane({
@@ -50,6 +49,7 @@ export default function NodeDetailsPane({
   detailsByTabId,
   draggingTabId,
   hoveredDropEdge,
+  hoveredMergeZone,
   canSplit,
   onActivatePane,
   onActivateTab,
@@ -59,7 +59,6 @@ export default function NodeDetailsPane({
   closePaneBlockedReason,
   onClosePaneRejected,
   onBeginTabDrag,
-  onSplitRejected,
 }: NodeDetailsPaneProps) {
   const paneRef = useRef<HTMLDivElement | null>(null);
 
@@ -71,7 +70,7 @@ export default function NodeDetailsPane({
 
   const ariaLabel = useMemo(() => `Results pane ${paneIndex + 1} of ${paneCount}`, [paneCount, paneIndex]);
 
-  const handleTabKeyDown = (event: KeyboardEvent<HTMLDivElement>, tabId: string) => {
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tabId: string) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     if (tabs.length === 0) return;
 
@@ -105,29 +104,47 @@ export default function NodeDetailsPane({
         <div className="pointer-events-none absolute inset-0 z-30">
           <div
             className={cn(
-              'pointer-events-auto absolute inset-y-0 left-0 w-1/2 border-r border-border/70 transition-colors',
+              'absolute inset-0 transition-colors',
+              hoveredMergeZone ? 'bg-primary/14' : 'bg-transparent',
+            )}
+          />
+
+          <div
+            className={cn(
+              'absolute inset-y-0 left-0 w-1/3 transition-colors',
               hoveredDropEdge === 'left' ? 'bg-primary/18' : 'bg-transparent',
             )}
           />
 
           <div
             className={cn(
-              'pointer-events-auto absolute inset-y-0 right-0 w-1/2 transition-colors',
+              'absolute inset-y-0 right-0 w-1/3 transition-colors',
               hoveredDropEdge === 'right' ? 'bg-primary/18' : 'bg-transparent',
             )}
           />
         </div>
       ) : null}
 
-      <div className="flex min-h-9 items-center border-b border-border bg-muted/40 pr-1" role="tablist" aria-label={ariaLabel}>
-        <div className="flex min-w-0 flex-1 items-end gap-px overflow-x-auto px-2 pt-1">
-          {tabs.map((tab) => {
+      <div 
+        className="flex min-h-9 items-center border-b border-border bg-muted/40 pr-1" 
+        role="tablist" 
+        aria-label={ariaLabel}
+        data-pane-header={pane.id}
+      >
+        <div 
+          className="flex min-w-0 flex-1 items-end gap-px overflow-x-auto px-2 pt-1"
+          data-tab-strip={pane.id}
+        >
+          {tabs.map((tab, tabIndex) => {
             const isActive = tab.id === activeTabId;
             const panelId = `workspace-right-panel-${pane.id}-${tab.id}`;
 
             return (
               <div
                 key={tab.id}
+                data-tab-item-pane-id={pane.id}
+                data-tab-item-tab-id={tab.id}
+                data-tab-item-index={tabIndex}
                 className={cn(
                   'group relative flex min-h-8 items-stretch rounded-none border border-b-0',
                   draggingTabId === tab.id && 'opacity-70',
@@ -136,35 +153,24 @@ export default function NodeDetailsPane({
                     : 'border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground',
                 )}
               >
-                <div
+                <button
+                  type="button"
                   id={`workspace-right-tab-${pane.id}-${tab.id}`}
                   role="tab"
                   aria-selected={isActive}
                   aria-controls={panelId}
                   tabIndex={isActive ? 0 : -1}
-                  className="max-w-[220px] cursor-grab truncate px-2.5 py-1.5 text-left text-xs font-medium active:cursor-grabbing select-none touch-none [-webkit-user-drag:element]"
+                  className="max-w-[220px] cursor-grab truncate px-2.5 py-1.5 text-left text-xs font-medium active:cursor-grabbing select-none touch-none"
                   onClick={() => onActivateTab(pane.id, tab.id)}
                   onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
                   onPointerDown={(event) => {
                     if (event.button !== 0) return;
                     event.preventDefault();
-                    
-                    // Immediate rejection if split is impossible (max panes reached)
-                    if (!canSplit) {
-                      onSplitRejected('Maximum 4 panes reached. Close a pane to split again.');
-                      return;
-                    }
-
-                    // Check pane width for split viability
-                    const paneWidth = paneRef.current?.getBoundingClientRect().width ?? 0;
-                    if (paneWidth > 0 && paneWidth / 2 < MIN_PANE_WIDTH_PX) {
-                      onSplitRejected('Pane is too narrow to split. Widen the workspace first.');
-                      return;
-                    }
 
                     onBeginTabDrag({
                       paneId: pane.id,
                       tabId: tab.id,
+                      tabIndex,
                       pointerId: event.pointerId,
                       startX: event.clientX,
                       startY: event.clientY,
@@ -177,7 +183,7 @@ export default function NodeDetailsPane({
                   }}
                 >
                   {tab.title}
-                </div>
+                </button>
 
                 <Button
                   type="button"

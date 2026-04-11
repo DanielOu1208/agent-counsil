@@ -14,9 +14,11 @@ import {
   createDefaultNodeDetailsLayout,
   getSplitPaneBlockReason,
   LAYOUT_STORAGE_WRITE_DEBOUNCE_MS,
+  moveTabToPane,
   openNodeTabInActivePane,
   parseLayoutFromStorage,
   parseNodeIdFromTabId,
+  reorderTabInPane,
   sanitizeNodeDetailsLayout,
   serializeLayoutForStorage,
   splitPaneWithTab,
@@ -413,6 +415,17 @@ export default function AppShell({
     });
   }, []);
 
+  const handleMoveRightTabToPane = useCallback(
+    (tabId: string, fromPaneId: string, toPaneId: string, toIndex?: number) => {
+      setRightLayout((prev) => moveTabToPane(prev, { tabId, fromPaneId, toPaneId, toIndex }));
+    },
+    [],
+  );
+
+  const handleReorderRightTabInPane = useCallback((paneId: string, fromIndex: number, toIndex: number) => {
+    setRightLayout((prev) => reorderTabInPane(prev, { paneId, fromIndex, toIndex }));
+  }, []);
+
   return (
     <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
       {/* Left Sidebar */}
@@ -489,6 +502,8 @@ export default function AppShell({
             onSplitActivePaneRight={handleSplitActivePaneRight}
             onFocusRightPaneByIndex={handleFocusRightPaneByIndex}
             rightPaneNotice={rightPaneNotice}
+            onMoveRightTabToPane={handleMoveRightTabToPane}
+            onReorderRightTabInPane={handleReorderRightTabInPane}
             laneConfigs={laneConfigs}
             laneSettings={laneSettings}
             onLaneSettingsChange={onLaneSettingsChange}

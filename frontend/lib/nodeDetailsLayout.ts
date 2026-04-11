@@ -465,3 +465,154 @@ export function parseLayoutFromStorage(raw: string): PersistedWorkspaceNodeDetai
     return null;
   }
 }
+
+/**
+ * Move a tab from one pane to another (or within the same pane).
+ * - If tab already exists in target pane, makes it active and removes from source.
+ * - If moving the last tab from a pane, auto-removes empty source pane.
+ * - Returns original layout on invalid params or no-op.
+ */
+export function moveTabToPane(
+  layout: WorkspaceNodeDetailsLayoutV2,
+  params: { tabId: string; fromPaneId: string; toPaneId: string; toIndex?: number },
+): WorkspaceNodeDetailsLayoutV2 {
+  const { tabId, fromPaneId, toPaneId, toIndex } = params;
+
+  const fromPaneIndex = findPaneIndexById(layout, fromPaneId);
+  if (fromPaneIndex < 0) return layout;
+
+  const toPaneIndex = findPaneIndexById(layout, toPaneId);
+  if (toPaneIndex < 0) return layout;
+
+  const fromPane = layout.panes[fromPaneIndex];
+  const toPane = layout.panes[toPaneIndex];
+  if (!fromPane || !toPane) return layout;
+
+  const tabIndex = fromPane.tabIds.indexOf(tabId);
+  if (tabIndex < 0) return layout;
+
+  // Same pane case: delegate to reorderTabInPane
+  if (fromPaneId === toPaneId) {
+    const targetIndex = toIndex ?? fromPane.tabIds.length - 1;
+    return reorderTabInPane(layout, { paneId: fromPaneId, fromIndex: tabIndex, toIndex: targetIndex });
+  }
+
+  // Check if tab already exists in target pane (dedupe case)
+  const existingInTargetIndex = toPane.tabIds.indexOf(tabId);
+  if (existingInTargetIndex >= 0) {
+    // Remove from source, activate in target
+    const nextFromTabIds = fromPane.tabIds.filter((id) => id !== tabId);
+    const willRemoveFromPane = nextFromTabIds.length === 0;
+
+    let nextPanes = layout.panes.map((pane) => {
+      if (pane.id === fromPaneId) {
+        const nextActiveTabId =
+          pane.activeTabId !== tabId ? pane.activeTabId : (nextFromTabIds[tabIndex - 1] ?? nextFromTabIds[tabIndex] ?? null);
+        return {
+          ...pane,
+          tabIds: nextFromTabIds,
+          activeTabId: nextActiveTabId,
+        };
+      }
+      if (pane.id === toPaneId) {
+        return {
+          ...pane,
+          activeTabId: tabId,
+        };
+      }
+      return pane;
+    });
+
+    if (willRemoveFromPane) {
+      nextPanes = nextPanes.filter((pane) => pane.id !== fromPaneId);
+    }
+
+    const nextActivePaneId = willRemoveFromPane && layout.activePaneId === fromPaneId ? toPaneId : layout.activePaneId;
+
+    return sanitizeNodeDetailsLayout({
+      ...layout,
+      panes: nextPanes,
+      activePaneId: nextActivePaneId,
+    });
+  }
+
+  // Normal move: remove from source, add to target
+  const nextFromTabIds = fromPane.tabIds.filter((id) => id !== tabId);
+  const willRemoveFromPane = nextFromTabIds.length === 0;
+
+  const insertIndex = toIndex !== undefined
+    ? Math.min(Math.max(0, toIndex), toPane.tabIds.length)
+    : toPane.tabIds.length;
+
+  const nextToTabIds = [...toPane.tabIds];
+  nextToTabIds.splice(insertIndex, 0, tabId);
+
+  let nextPanes = layout.panes.map((pane) => {
+    if (pane.id === fromPaneId) {
+      const nextActiveTabId =
+        pane.activeTabId !== tabId ? pane.activeTabId : (nextFromTabIds[tabIndex - 1] ?? nextFromTabIds[tabIndex] ?? null);
+      return {
+        ...pane,
+        tabIds: nextFromTabIds,
+        activeTabId: nextActiveTabId,
+      };
+    }
+    if (pane.id === toPaneId) {
+      return {
+        ...pane,
+        tabIds: nextToTabIds,
+        activeTabId: tabId,
+      };
+    }
+    return pane;
+  });
+
+  if (willRemoveFromPane) {
+    nextPanes = nextPanes.filter((pane) => pane.id !== fromPaneId);
+  }
+
+  const nextActivePaneId = willRemoveFromPane && layout.activePaneId === fromPaneId ? toPaneId : layout.activePaneId;
+
+  return sanitizeNodeDetailsLayout({
+    ...layout,
+    panes: nextPanes,
+    activePaneId: nextActivePaneId,
+  });
+}
+
+/**
+ * Reorder a tab within a pane.
+ * Returns original layout on invalid params or no-op.
+ */
+export function reorderTabInPane(
+  layout: WorkspaceNodeDetailsLayoutV2,
+  params: { paneId: string; fromIndex: number; toIndex: number },
+): WorkspaceNodeDetailsLayoutV2 {
+  const { paneId, fromIndex, toIndex } = params;
+
+  const paneIndex = findPaneIndexById(layout, paneId);
+  if (paneIndex < 0) return layout;
+
+  const pane = layout.panes[paneIndex];
+  if (!pane) return layout;
+
+  if (fromIndex < 0 || fromIndex >= pane.tabIds.length) return layout;
+  if (toIndex < 0 || toIndex >= pane.tabIds.length) return layout;
+
+  if (fromIndex === toIndex) return layout;
+
+  const nextTabIds = [...pane.tabIds];
+  const [movedTab] = nextTabIds.splice(fromIndex, 1);
+  nextTabIds.splice(toIndex, 0, movedTab);
+
+  return sanitizeNodeDetailsLayout({
+    ...layout,
+    panes: layout.panes.map((p) => {
+      if (p.id !== paneId) return p;
+      return {
+        ...p,
+        tabIds: nextTabIds,
+      };
+    }),
+  });
+}
