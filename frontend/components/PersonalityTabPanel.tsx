@@ -56,7 +56,7 @@ export default function PersonalityTabPanel({
   };
 
   return (
-    <div className="h-full overflow-auto p-4">
+    <div className="h-full overflow-auto p-2">
       <div className="mx-auto w-full max-w-3xl rounded-none border border-border bg-card p-4">
         <div className="mb-3 flex items-center gap-2">
           <Sparkles className="size-4 text-primary" />

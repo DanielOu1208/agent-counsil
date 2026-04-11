@@ -23,15 +23,15 @@ export default function NodeDetailsTabPanel({ details }: NodeDetailsTabPanelProp
   }
 
   return (
-    <div className="h-full min-h-0 p-4">
+    <div className="h-full min-h-0 p-2">
       <div className="flex h-full min-h-0 flex-col rounded-none border border-border bg-card">
-        <div className="px-4 py-3">
-          <h3 className="text-sm font-semibold">{details.title}</h3>
-          <p className="text-xs text-muted-foreground">{details.lane}</p>
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <h3 className="truncate text-xs font-semibold">{details.title}</h3>
+          <p className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{details.lane}</p>
         </div>
         <Separator />
         <div className="min-h-0 flex-1">
-          <ScrollArea className="h-full px-4 py-3">
+          <ScrollArea className="h-full px-3 py-2">
             <MarkdownContent>{details.content}</MarkdownContent>
           </ScrollArea>
         </div>

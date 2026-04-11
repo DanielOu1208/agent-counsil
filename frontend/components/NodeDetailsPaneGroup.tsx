@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import NodeDetailsPane from './NodeDetailsPane';
 import { cn } from '@/lib/utils';
-import { canClosePane, getSplitPaneBlockReason, MAX_RIGHT_PANES } from '@/lib/nodeDetailsLayout';
+import { getSplitPaneBlockReason, MAX_RIGHT_PANES } from '@/lib/nodeDetailsLayout';
 import {
   WorkspaceNodeDetails,
   WorkspaceNodeDetailsLayoutV2,
@@ -20,7 +20,6 @@ interface NodeDetailsPaneGroupProps {
   onActivatePane: (paneId: string) => void;
   onActivateTab: (paneId: string, tabId: string) => void;
   onCloseTab: (paneId: string, tabId: string) => void;
-  onClosePane: (paneId: string) => void;
   onSplitTab: (targetPaneId: string, edge: WorkspaceSplitEdge, tabId: string) => void;
   onMoveTabToPane: (tabId: string, fromPaneId: string, toPaneId: string, toIndex?: number) => void;
   onReorderTabInPane: (paneId: string, fromIndex: number, toIndex: number) => void;
@@ -68,7 +67,6 @@ export default function NodeDetailsPaneGroup({
   onActivatePane,
   onActivateTab,
   onCloseTab,
-  onClosePane,
   onSplitTab,
   onMoveTabToPane,
   onReorderTabInPane,
@@ -373,7 +371,6 @@ export default function NodeDetailsPaneGroup({
           const tabs = pane.tabIds
             .map((tabId) => tabsById[tabId])
             .filter((tab): tab is WorkspaceNodeTab => Boolean(tab));
-          const closeCheck = canClosePane(layout, pane.id);
 
           return (
             <NodeDetailsPane
@@ -395,12 +392,6 @@ export default function NodeDetailsPaneGroup({
               onActivatePane={onActivatePane}
               onActivateTab={onActivateTab}
               onCloseTab={onCloseTab}
-              onClosePane={onClosePane}
-              canClosePane={closeCheck.ok}
-              closePaneBlockedReason={closeCheck.reason}
-              onClosePaneRejected={(message) => {
-                setNotice(message);
-              }}
               onBeginTabDrag={beginTabDrag}
             />
           );

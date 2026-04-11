@@ -9,7 +9,6 @@ import {
   activatePane,
   activateTab,
   buildNodeTabId,
-  closePane,
   closeTabInPane,
   createDefaultNodeDetailsLayout,
   getSplitPaneBlockReason,
@@ -351,10 +350,6 @@ export default function AppShell({
     setRightLayout((prev) => closeTabInPane(prev, paneId, tabId));
   }, []);
 
-  const handleCloseRightPane = useCallback((paneId: string) => {
-    setRightLayout((prev) => closePane(prev, paneId));
-  }, []);
-
   const handleSplitRightTab = useCallback((targetPaneId: string, edge: WorkspaceSplitEdge, tabId: string) => {
     setRightLayout((prev) => {
       const next = splitPaneWithTab(prev, {
@@ -497,7 +492,6 @@ export default function AppShell({
             onActivateRightPane={handleActivateRightPane}
             onActivateRightTab={handleActivateRightTab}
             onCloseRightTab={handleCloseRightTab}
-            onCloseRightPane={handleCloseRightPane}
             onSplitRightTab={handleSplitRightTab}
             onSplitActivePaneRight={handleSplitActivePaneRight}
             onFocusRightPaneByIndex={handleFocusRightPaneByIndex}

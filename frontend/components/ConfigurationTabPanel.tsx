@@ -52,8 +52,8 @@ export default function ConfigurationTabPanel({
   canRemoveAgent,
 }: ConfigurationTabPanelProps) {
   return (
-    <div className="h-full min-h-0 p-4">
-      <ScrollArea className="h-full rounded-none border border-border bg-card p-3">
+    <div className="h-full min-h-0 p-2">
+      <ScrollArea className="h-full rounded-none border border-border bg-card px-3 py-2">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
           {laneConfigs.map((lane, index) => {
             const settings = laneSettings[lane.id];

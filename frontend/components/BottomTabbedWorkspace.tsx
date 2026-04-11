@@ -32,7 +32,6 @@ interface BottomTabbedWorkspaceProps {
   onActivateRightPane: (paneId: string) => void;
   onActivateRightTab: (paneId: string, tabId: string) => void;
   onCloseRightTab: (paneId: string, tabId: string) => void;
-  onCloseRightPane: (paneId: string) => void;
   onSplitRightTab: (targetPaneId: string, edge: WorkspaceSplitEdge, tabId: string) => void;
   onSplitActivePaneRight: () => void;
   onFocusRightPaneByIndex: (index: number) => void;
@@ -62,7 +61,6 @@ export default function BottomTabbedWorkspace({
   onActivateRightPane,
   onActivateRightTab,
   onCloseRightTab,
-  onCloseRightPane,
   onSplitRightTab,
   onSplitActivePaneRight,
   onFocusRightPaneByIndex,
@@ -140,8 +138,8 @@ export default function BottomTabbedWorkspace({
   return (
     <section className="flex h-full min-h-0 border-t border-border bg-popover/95 backdrop-blur-sm">
       <div className="flex min-h-0 w-1/4 shrink-0 basis-1/4 min-w-0 flex-col border-r border-border">
-        <div className="overflow-x-auto border-b border-border bg-muted/40" role="tablist" aria-label="Left workspace tabs">
-          <div className="flex min-w-max items-end gap-px px-2 pt-1">
+        <div className="overflow-hidden border-b border-border bg-muted/40" role="tablist" aria-label="Left workspace tabs">
+          <div className="flex min-w-max items-center gap-1 px-2 py-1">
             {leftTabs.map((tab) => {
               const isActive = tab.id === leftActiveTabId;
               const panelId = `workspace-left-panel-${tab.id}`;
@@ -150,10 +148,10 @@ export default function BottomTabbedWorkspace({
                 <div
                   key={tab.id}
                   className={cn(
-                    'group relative flex min-h-8 items-stretch rounded-none border border-b-0',
+                    'group relative flex items-center rounded-sm',
                     isActive
-                      ? 'z-10 -mb-px border-border bg-background text-foreground shadow-sm'
-                      : 'border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                      ? 'bg-background text-foreground'
+                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
                   )}
                 >
                   <button
@@ -163,7 +161,7 @@ export default function BottomTabbedWorkspace({
                     aria-selected={isActive}
                     aria-controls={panelId}
                     tabIndex={isActive ? 0 : -1}
-                    className="max-w-[240px] truncate px-2.5 py-1.5 text-left text-xs font-medium"
+                    className="max-w-[220px] truncate px-2 py-1 text-left text-[11px] font-medium"
                     onClick={() => onLeftTabChange(tab.id)}
                     onKeyDown={(event) => handleLeftKeyDown(event, tab.id)}
                   >
@@ -203,7 +201,7 @@ export default function BottomTabbedWorkspace({
           ) : null}
 
           {leftActiveTabId === 'lanes' ? (
-            <div className="h-full overflow-auto p-4">
+            <div className="h-full overflow-auto p-2">
               <ReasoningLanes
                 laneConfigs={laneConfigs}
                 messages={messages}
@@ -225,7 +223,6 @@ export default function BottomTabbedWorkspace({
           onActivatePane={onActivateRightPane}
           onActivateTab={onActivateRightTab}
           onCloseTab={onCloseRightTab}
-          onClosePane={onCloseRightPane}
           onSplitTab={onSplitRightTab}
           onMoveTabToPane={onMoveRightTabToPane}
           onReorderTabInPane={onReorderRightTabInPane}

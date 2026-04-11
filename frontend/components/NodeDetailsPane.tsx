@@ -26,10 +26,6 @@ interface NodeDetailsPaneProps {
   onActivatePane: (paneId: string) => void;
   onActivateTab: (paneId: string, tabId: string) => void;
   onCloseTab: (paneId: string, tabId: string) => void;
-  onClosePane: (paneId: string) => void;
-  canClosePane: boolean;
-  closePaneBlockedReason?: string;
-  onClosePaneRejected: (message: string) => void;
   onBeginTabDrag: (params: {
     paneId: string;
     tabId: string;
@@ -54,10 +50,6 @@ export default function NodeDetailsPane({
   onActivatePane,
   onActivateTab,
   onCloseTab,
-  onClosePane,
-  canClosePane,
-  closePaneBlockedReason,
-  onClosePaneRejected,
   onBeginTabDrag,
 }: NodeDetailsPaneProps) {
   const activeTabId = pane.activeTabId;
@@ -124,13 +116,13 @@ export default function NodeDetailsPane({
         </div>
       ) : null}
 
-      <div 
-        className="flex min-h-9 items-center border-b border-border bg-muted/40 pr-1" 
+      <div
+        className="flex min-h-8 items-center border-b border-border bg-muted/30 pr-1"
         role="tablist" 
         aria-label={ariaLabel}
       >
-        <div 
-          className="flex min-w-0 flex-1 items-end gap-px overflow-x-auto px-2 pt-1"
+        <div
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden px-2 py-1"
           data-tab-strip={pane.id}
         >
           {tabs.map((tab, tabIndex) => {
@@ -144,11 +136,11 @@ export default function NodeDetailsPane({
                 data-tab-item-tab-id={tab.id}
                 data-tab-item-index={tabIndex}
                 className={cn(
-                  'group relative flex min-h-8 items-stretch rounded-none border border-b-0',
+                  'group relative flex items-center rounded-sm',
                   draggingTabId === tab.id && 'opacity-70',
                   isActive
-                    ? 'z-10 -mb-px border-border bg-background text-foreground shadow-sm'
-                    : 'border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                    ? 'bg-background text-foreground'
+                    : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
                 )}
               >
                 <button
@@ -158,7 +150,7 @@ export default function NodeDetailsPane({
                   aria-selected={isActive}
                   aria-controls={panelId}
                   tabIndex={isActive ? 0 : -1}
-                  className="max-w-[220px] cursor-grab truncate px-2.5 py-1.5 text-left text-xs font-medium active:cursor-grabbing select-none touch-none"
+                  className="max-w-[180px] cursor-grab truncate px-2 py-1 text-left text-[11px] font-medium active:cursor-grabbing select-none touch-none"
                   onClick={() => onActivateTab(pane.id, tab.id)}
                   onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
                   onPointerDown={(event) => {
@@ -188,7 +180,7 @@ export default function NodeDetailsPane({
                   variant="ghost"
                   size="icon-xs"
                   className={cn(
-                    'size-6 rounded-none text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                    'size-5 rounded-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                     !isActive && 'opacity-70 group-hover:opacity-100',
                   )}
                   onClick={() => onCloseTab(pane.id, tab.id)}
@@ -200,32 +192,6 @@ export default function NodeDetailsPane({
             );
           })}
         </div>
-
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="ml-1 size-6 rounded-none text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-          onClick={() => {
-            if (paneCount <= 1) {
-              onClosePaneRejected('At least one pane must remain open.');
-              return;
-            }
-
-            if (!canClosePane) {
-              onClosePaneRejected(
-                closePaneBlockedReason ??
-                  'Cannot close pane right now. Move or close some tabs in the adjacent pane first.',
-              );
-              return;
-            }
-
-            onClosePane(pane.id);
-          }}
-          aria-label={`Close results pane ${paneIndex + 1}`}
-        >
-          <X className="size-3.5" />
-        </Button>
       </div>
 
       <div
