@@ -135,6 +135,18 @@ export default function AppShell({
   const [rightLayout, setRightLayout] = useState(() => createDefaultNodeDetailsLayout());
   const [nodeDetailsByTabId, setNodeDetailsByTabId] = useState<Record<string, WorkspaceNodeDetails>>({});
   const [rightPaneNotice, setRightPaneNotice] = useState<string | null>(null);
+  const lanePersonalityNameById = useMemo(() => {
+    const personalityNameById = new Map(
+      personalityOptions.map((personality) => [personality.id, personality.name]),
+    );
+    const result: Record<LaneId, string> = {};
+    for (const lane of laneConfigs) {
+      const personalityId = laneSettings[lane.id]?.personalityId;
+      result[lane.id] =
+        (personalityId ? personalityNameById.get(personalityId) : undefined) ?? 'No personality';
+    }
+    return result;
+  }, [laneConfigs, laneSettings, personalityOptions]);
   const [sessionScopeId] = useState<string>(() => {
     if (typeof window === 'undefined') {
       return 'server-session';
@@ -446,6 +458,7 @@ export default function AppShell({
             graphEdges={graphEdges}
             resolveLane={resolveLane}
             laneConfigs={laneConfigs}
+            lanePersonalityNameById={lanePersonalityNameById}
             openNodeIds={openNodeIds}
             onOpenNodeTab={handleOpenNodeTab}
           />

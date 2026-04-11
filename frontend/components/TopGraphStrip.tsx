@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, type MouseEvent } from 'react';
-import ReactFlow, { Background, Edge, Node, Position } from 'reactflow';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import ReactFlow, { Background, Edge, Handle, Node, NodeProps, Position } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { MessageSquare } from 'lucide-react';
+import ElkConstructor from 'elkjs/lib/elk.bundled.js';
 import { DebateGraphEdge, DebateGraphNode, LaneConfig, LaneId, WorkspaceNodeDetails } from '@/types/ui';
 
 interface TopGraphStripProps {
@@ -11,8 +12,17 @@ interface TopGraphStripProps {
   graphEdges: DebateGraphEdge[];
   resolveLane: (node: DebateGraphNode) => LaneId;
   laneConfigs: LaneConfig[];
+  lanePersonalityNameById?: Record<LaneId, string>;
   openNodeIds?: Set<string>;
   onOpenNodeTab?: (nodeId: string, details: WorkspaceNodeDetails) => void;
+}
+
+interface CompactGraphNodeData {
+  title: string;
+  personality: string;
+  messageType: string;
+  laneColor: string;
+  hoverText: string;
 }
 
 const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
@@ -30,6 +40,52 @@ const LANE_COLOR_PALETTE = [
   'oklch(0.72 0 0)',
 ];
 
+const elk = new ElkConstructor();
+
+const ELK_LAYOUT_OPTIONS = {
+  'elk.algorithm': 'layered',
+  'elk.direction': 'RIGHT',
+  'elk.spacing.nodeNode': '50',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '56',
+  'elk.layered.spacing.layerLayer': '45',
+  'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+};
+
+const NODE_WIDTH = 110;
+const NODE_HEIGHT = 42;
+
+function CompactGraphNode({ data }: NodeProps<CompactGraphNodeData>) {
+  return (
+    <div
+      title={data.hoverText}
+      className="relative flex h-full w-full items-center overflow-hidden px-2 py-1"
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ width: 6, height: 6, opacity: 0, pointerEvents: 'none' }}
+      />
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-[2px]"
+        style={{ backgroundColor: data.laneColor }}
+      />
+      <div className="min-w-0 pl-1">
+        <div className="truncate text-[9px] font-semibold tracking-wide text-foreground/90">{data.title}</div>
+        <div className="truncate text-[8px] text-foreground/50">{data.personality}</div>
+        <div className="truncate text-[8px] text-foreground/50">{data.messageType}</div>
+      </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ width: 6, height: 6, opacity: 0, pointerEvents: 'none' }}
+      />
+    </div>
+  );
+}
+
+const NODE_TYPES = { compactNode: CompactGraphNode };
+
 function getLaneColor(laneId: LaneId, laneConfigs: LaneConfig[]): string {
   const index = laneConfigs.findIndex((lane) => lane.id === laneId);
   return LANE_COLOR_PALETTE[index >= 0 ? index % LANE_COLOR_PALETTE.length : 0];
@@ -46,8 +102,143 @@ function getNodeTitle(node: DebateGraphNode): string {
   return 'Agent Message';
 }
 
-function getNodeLabel(node: DebateGraphNode): string {
-  return node.status === 'streaming' ? `${getNodeTitle(node)} •` : getNodeTitle(node);
+function computeFallbackGridPositions(nodeIds: string[]): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>();
+  const cols = Math.ceil(Math.sqrt(nodeIds.length));
+  nodeIds.forEach((id, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    positions.set(id, { x: col * 238, y: row * 80 });
+  });
+  return positions;
+}
+
+function centerMultiParentTargets(
+  flowNodes: Node[],
+  flowEdges: DebateGraphEdge[],
+): Node[] {
+  const nodesById = new Map(flowNodes.map((node) => [node.id, node]));
+  const parentIdsByTargetId = new Map<string, string[]>();
+
+  for (const edge of flowEdges) {
+    if (!nodesById.has(edge.fromNodeId) || !nodesById.has(edge.toNodeId)) continue;
+    const parentIds = parentIdsByTargetId.get(edge.toNodeId) ?? [];
+    parentIds.push(edge.fromNodeId);
+    parentIdsByTargetId.set(edge.toNodeId, parentIds);
+  }
+
+  const nextNodes = flowNodes.map((node) => ({ ...node, position: { ...node.position } }));
+  const nextById = new Map(nextNodes.map((node) => [node.id, node]));
+
+  for (const [targetId, parentIds] of parentIdsByTargetId) {
+    if (parentIds.length < 2) continue;
+
+    const parentNodes = parentIds
+      .map((parentId) => nextById.get(parentId))
+      .filter((node): node is Node => Boolean(node));
+
+    if (parentNodes.length < 2) continue;
+
+    const avgParentY =
+      parentNodes.reduce((sum, node) => sum + node.position.y, 0) / parentNodes.length;
+    const targetNode = nextById.get(targetId);
+    if (!targetNode) continue;
+
+    targetNode.position.y = avgParentY;
+  }
+
+  return nextNodes;
+}
+
+function orderAgentSiblingsByLane(
+  flowNodes: Node[],
+  flowEdges: DebateGraphEdge[],
+  nodeMetaById: Map<string, { speakerType: DebateGraphNode['speakerType']; laneOrder: number }>,
+): Node[] {
+  const nextNodes = flowNodes.map((node) => ({ ...node, position: { ...node.position } }));
+  const nodesById = new Map(nextNodes.map((node) => [node.id, node]));
+  const childIdsByParentId = new Map<string, string[]>();
+
+  for (const edge of flowEdges) {
+    if (!nodesById.has(edge.fromNodeId) || !nodesById.has(edge.toNodeId)) continue;
+    const childIds = childIdsByParentId.get(edge.fromNodeId) ?? [];
+    childIds.push(edge.toNodeId);
+    childIdsByParentId.set(edge.fromNodeId, childIds);
+  }
+
+  for (const childIds of childIdsByParentId.values()) {
+    const agentChildren = childIds
+      .map((id) => nodesById.get(id))
+      .filter((node): node is Node => Boolean(node))
+      .filter((node) => nodeMetaById.get(node.id)?.speakerType === 'agent');
+
+    if (agentChildren.length < 2) continue;
+
+    const laneOrdered = [...agentChildren].sort((a, b) => {
+      const aOrder = nodeMetaById.get(a.id)?.laneOrder ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = nodeMetaById.get(b.id)?.laneOrder ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder;
+    });
+
+    const currentYSorted = [...agentChildren]
+      .map((node) => node.position.y)
+      .sort((a, b) => a - b);
+
+    for (let i = 0; i < laneOrdered.length; i++) {
+      const node = laneOrdered[i];
+      const y = currentYSorted[i];
+      if (node && y !== undefined) {
+        node.position.y = y;
+      }
+    }
+  }
+
+  return nextNodes;
+}
+
+async function computeElkLayout(
+  nodes: DebateGraphNode[],
+  edges: DebateGraphEdge[],
+): Promise<Map<string, { x: number; y: number }>> {
+  const positions = new Map<string, { x: number; y: number }>();
+
+  if (nodes.length === 0) return positions;
+
+  const nodeIdSet = new Set(nodes.map((node) => node.id));
+  const layoutEdges = edges.filter(
+    (edge) => nodeIdSet.has(edge.fromNodeId) && nodeIdSet.has(edge.toNodeId),
+  );
+
+  const elkGraph = {
+    id: 'root',
+    layoutOptions: ELK_LAYOUT_OPTIONS,
+    children: nodes.map((node) => ({
+      id: node.id,
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+    })),
+    edges: layoutEdges.map((edge) => ({
+      id: edge.id,
+      sources: [edge.fromNodeId],
+      targets: [edge.toNodeId],
+    })),
+  };
+
+  try {
+    const layout = await elk.layout(elkGraph);
+    if (layout?.children) {
+      for (const child of layout.children) {
+        if (child.x !== undefined && child.y !== undefined) {
+          positions.set(child.id, { x: child.x, y: child.y });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('ELK layout failed, using fallback grid:', error);
+    return computeFallbackGridPositions(nodes.map((n) => n.id));
+  }
+
+  return positions;
 }
 
 export default function TopGraphStrip({
@@ -55,6 +246,7 @@ export default function TopGraphStrip({
   graphEdges,
   resolveLane,
   laneConfigs,
+  lanePersonalityNameById = {},
   openNodeIds = new Set<string>(),
   onOpenNodeTab,
 }: TopGraphStripProps) {
@@ -65,15 +257,18 @@ export default function TopGraphStrip({
     [graphNodeIdSet, openNodeIds],
   );
 
-  const { flowNodes, flowEdges, nodeDetails } = useMemo(() => {
-    const sortedNodes = [...graphNodes].sort((a, b) => {
-      const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      if (timeDiff !== 0) return timeDiff;
-      return a.id.localeCompare(b.id);
-    });
+  const sortedNodes = useMemo(
+    () =>
+      [...graphNodes].sort((a, b) => {
+        const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return a.id.localeCompare(b.id);
+      }),
+    [graphNodes],
+  );
 
+  const { mergedEdges, nodeDetails } = useMemo(() => {
     const nodesById = new Map(sortedNodes.map((node) => [node.id, node]));
-    const laneRowIndex = new Map(laneConfigs.map((lane, index) => [lane.id, index]));
 
     const edgeRelationKey = (edge: {
       fromNodeId: string;
@@ -83,7 +278,7 @@ export default function TopGraphStrip({
 
     const relationKeySet = new Set<string>();
     const pairKeySet = new Set<string>();
-    const mergedEdges: DebateGraphEdge[] = [];
+    const merged: DebateGraphEdge[] = [];
 
     for (const edge of graphEdges) {
       const key = edgeRelationKey(edge);
@@ -91,7 +286,7 @@ export default function TopGraphStrip({
       if (relationKeySet.has(key)) continue;
       relationKeySet.add(key);
       pairKeySet.add(pairKey);
-      mergedEdges.push(edge);
+      merged.push(edge);
     }
 
     for (const node of sortedNodes) {
@@ -108,163 +303,134 @@ export default function TopGraphStrip({
       if (relationKeySet.has(key)) continue;
       relationKeySet.add(key);
       pairKeySet.add(pairKey);
-      mergedEdges.push(fallbackEdge);
+      merged.push(fallbackEdge);
     }
 
-    const parentsByNodeId = new Map<string, string[]>();
-    for (const edge of mergedEdges) {
-      const list = parentsByNodeId.get(edge.toNodeId) ?? [];
-      list.push(edge.fromNodeId);
-      parentsByNodeId.set(edge.toNodeId, list);
-    }
-
-    const columnByNodeId = new Map<string, number>();
-    for (const node of sortedNodes) {
-      const parentIds = (parentsByNodeId.get(node.id) ?? []).filter((parentId) =>
-        columnByNodeId.has(parentId),
-      );
-      const column =
-        parentIds.length > 0
-          ? Math.max(...parentIds.map((parentId) => (columnByNodeId.get(parentId) ?? 0) + 1))
-          : 0;
-      columnByNodeId.set(node.id, column);
-    }
-
-    const laneColumnOffsets = new Map<string, number>();
-    const nextFlowNodes: Node[] = [];
     const details: Record<string, WorkspaceNodeDetails> = {};
-    const nodeOrderById = new Map(sortedNodes.map((node, index) => [node.id, index]));
-
     for (const node of sortedNodes) {
       const laneId = resolveLane(node);
-      const laneIndex = laneRowIndex.get(laneId) ?? 0;
-      const column = columnByNodeId.get(node.id) ?? 0;
-
-      const laneColumnKey = `${laneId}:${column}`;
-      const offsetInLaneColumn = laneColumnOffsets.get(laneColumnKey) ?? 0;
-      laneColumnOffsets.set(laneColumnKey, offsetInLaneColumn + 1);
-
       const title = getNodeTitle(node);
       const laneLabel = laneConfigs.find((lane) => lane.id === laneId)?.label ?? 'Unknown';
-      const laneColor = getLaneColor(laneId, laneConfigs);
       details[node.id] = {
         title,
         lane: laneLabel,
         content: node.content || (node.status === 'streaming' ? 'Streaming...' : 'No content'),
       };
+    }
 
-      nextFlowNodes.push({
+    return { mergedEdges: merged, nodeDetails: details };
+  }, [sortedNodes, graphEdges, resolveLane, laneConfigs]);
+
+  const [layoutPositions, setLayoutPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
+  const layoutKey = useMemo(
+    () =>
+      `${sortedNodes.map((n) => n.id).join(',')}|${mergedEdges.map((e) => e.id).join(',')}`,
+    [sortedNodes, mergedEdges],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    computeElkLayout(sortedNodes, mergedEdges).then((positions) => {
+      if (!cancelled) {
+        setLayoutPositions(positions);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [layoutKey, sortedNodes, mergedEdges]);
+
+  const flowNodes: Node<CompactGraphNodeData>[] = useMemo(() => {
+    const fallbackPositions = computeFallbackGridPositions(sortedNodes.map((n) => n.id));
+    const laneOrderById = new Map(laneConfigs.map((lane, index) => [lane.id, index]));
+    const nodeMetaById = new Map<string, { speakerType: DebateGraphNode['speakerType']; laneOrder: number }>();
+
+    const baseNodes = sortedNodes.map((node) => {
+      const laneId = resolveLane(node);
+      nodeMetaById.set(node.id, {
+        speakerType: node.speakerType,
+        laneOrder: laneOrderById.get(laneId) ?? Number.MAX_SAFE_INTEGER,
+      });
+      const laneColor = getLaneColor(laneId, laneConfigs);
+      const laneLabel = laneConfigs.find((lane) => lane.id === laneId)?.label ?? 'UNK';
+      const elkPos = layoutPositions.get(node.id);
+      const fallbackPos = fallbackPositions.get(node.id)!;
+      const position = elkPos ?? fallbackPos;
+      const contentSnippet = (node.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const messageType = getNodeTitle(node);
+      const title = node.speakerType === 'user' ? 'User' : laneLabel;
+      const personality = node.speakerType === 'agent' || node.speakerType === 'orchestrator'
+        ? lanePersonalityNameById[laneId] ?? 'No personality'
+        : '—';
+      const hoverText = `${title}\n${personality}\n${messageType}${contentSnippet ? `\n${contentSnippet}` : ''}`;
+
+      return {
         id: node.id,
-        type: 'default',
-        position: {
-          x: 90 + column * 320,
-          y: 50 + laneIndex * 185 + offsetInLaneColumn * 38,
-        },
+        type: 'compactNode',
+        position,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
-        data: { label: getNodeLabel(node) },
+        data: {
+          title,
+          personality,
+          messageType,
+          laneColor,
+          hoverText,
+        },
         style: {
           background: 'oklch(0.15 0 0)',
-          color: laneColor,
-          border:
-            node.status === 'streaming' ? `2px solid ${laneColor}` : '2px solid oklch(0.28 0 0)',
+          width: NODE_WIDTH,
+          minHeight: NODE_HEIGHT,
+          border: node.status === 'streaming' ? `2px solid ${laneColor}` : '2px solid oklch(0.28 0 0)',
           borderRadius: '0px',
-          padding: '10px 15px',
-          fontSize: '13px',
-          fontWeight: 500,
+          padding: '0',
           cursor: 'pointer',
           boxShadow:
             node.status === 'streaming'
               ? `0 0 10px color-mix(in srgb, ${laneColor} 55%, transparent)`
               : 'none',
         },
-      });
-    }
+      };
+    });
 
-    const flowNodeById = new Map(nextFlowNodes.map((node) => [node.id, node]));
-    const childrenByParentId = new Map<string, string[]>();
+    const laneOrderedNodes = orderAgentSiblingsByLane(baseNodes, mergedEdges, nodeMetaById);
+    return centerMultiParentTargets(laneOrderedNodes, mergedEdges);
+  }, [sortedNodes, layoutPositions, resolveLane, laneConfigs, lanePersonalityNameById, mergedEdges]);
 
-    for (const edge of mergedEdges) {
-      if (!nodesById.has(edge.fromNodeId) || !nodesById.has(edge.toNodeId)) continue;
-      const children = childrenByParentId.get(edge.fromNodeId) ?? [];
-      children.push(edge.toNodeId);
-      childrenByParentId.set(edge.fromNodeId, children);
-    }
+  const flowEdges: Edge[] = useMemo(
+    () =>
+      mergedEdges
+        .filter((edge) => graphNodeIdSet.has(edge.fromNodeId) && graphNodeIdSet.has(edge.toNodeId))
+        .map((edge) => {
+          const targetNode = graphNodes.find((n) => n.id === edge.toNodeId);
+          return {
+            id: edge.id,
+            source: edge.fromNodeId,
+            target: edge.toNodeId,
+            type: 'smoothstep',
+            animated: targetNode?.status === 'streaming',
+            style: { stroke: 'oklch(0.28 0 0)' },
+          };
+        }),
+    [mergedEdges, graphNodeIdSet, graphNodes],
+  );
 
-    const qualifyingParents = Array.from(childrenByParentId.entries())
-      .filter(([, childIds]) => {
-        const agentChildCount = childIds.filter(
-          (childId) => nodesById.get(childId)?.speakerType === 'agent',
-        ).length;
-        return agentChildCount >= 2;
-      })
-      .map(([parentId]) => parentId)
-      .sort((leftParentId, rightParentId) => {
-        const leftColumn = columnByNodeId.get(leftParentId) ?? 0;
-        const rightColumn = columnByNodeId.get(rightParentId) ?? 0;
-        if (leftColumn !== rightColumn) return leftColumn - rightColumn;
-
-        const leftOrder = nodeOrderById.get(leftParentId) ?? Number.MAX_SAFE_INTEGER;
-        const rightOrder = nodeOrderById.get(rightParentId) ?? Number.MAX_SAFE_INTEGER;
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-
-        return leftParentId.localeCompare(rightParentId);
-      });
-
-    for (const parentId of qualifyingParents) {
-      const parentNode = flowNodeById.get(parentId);
-      if (!parentNode) continue;
-
-      const agentChildren = (childrenByParentId.get(parentId) ?? [])
-        .filter((childId) => nodesById.get(childId)?.speakerType === 'agent')
-        .map((childId) => flowNodeById.get(childId))
-        .filter((childNode): childNode is Node => Boolean(childNode));
-
-      if (agentChildren.length < 2) continue;
-
-      const minChildY = Math.min(...agentChildren.map((childNode) => childNode.position.y));
-      const yShift = parentNode.position.y - minChildY;
-      if (yShift === 0) continue;
-
-      for (const childNode of agentChildren) {
-        childNode.position = {
-          ...childNode.position,
-          y: childNode.position.y + yShift,
-        };
-      }
-    }
-
-    const nextFlowEdges: Edge[] = mergedEdges
-      .filter((edge) => nodesById.has(edge.fromNodeId) && nodesById.has(edge.toNodeId))
-      .map((edge) => {
-        const targetNode = nodesById.get(edge.toNodeId);
-        return {
-          id: edge.id,
-          source: edge.fromNodeId,
-          target: edge.toNodeId,
-          type: 'straight',
-          animated: targetNode?.status === 'streaming',
-          style: { stroke: 'oklch(0.28 0 0)' },
-        };
-      });
-
-    return { flowNodes: nextFlowNodes, flowEdges: nextFlowEdges, nodeDetails: details };
-  }, [graphNodes, graphEdges, resolveLane, laneConfigs]);
-
-  const nodes = useMemo(() => {
-    return flowNodes.map((node) => ({
-      ...node,
-      style: {
-        ...node.style,
-        border: activeOpenNodeIds.has(node.id)
-          ? '2px solid oklch(0.6 0 0)'
-          : node.style?.border || '2px solid oklch(0.28 0 0)',
-        boxShadow: activeOpenNodeIds.has(node.id)
-          ? '0 0 12px oklch(0.6 0 0 / 0.3)'
-          : node.style?.boxShadow || 'none',
-      },
-    }));
-  }, [activeOpenNodeIds, flowNodes]);
+  const nodes = useMemo(
+    () =>
+      flowNodes.map((node) => ({
+        ...node,
+        style: {
+          ...node.style,
+          border: activeOpenNodeIds.has(node.id)
+            ? '2px solid oklch(0.6 0 0)'
+            : node.style?.border || '2px solid oklch(0.28 0 0)',
+          boxShadow: activeOpenNodeIds.has(node.id)
+            ? '0 0 12px oklch(0.6 0 0 / 0.3)'
+            : node.style?.boxShadow || 'none',
+        },
+      })),
+    [activeOpenNodeIds, flowNodes],
+  );
 
   const onNodeClick = useCallback(
     (_event: MouseEvent, node: Node) => {
@@ -309,6 +475,7 @@ export default function TopGraphStrip({
       <ReactFlow
         nodes={nodes}
         edges={flowEdges}
+        nodeTypes={NODE_TYPES}
         onNodeClick={onNodeClick}
         fitView
         fitViewOptions={FIT_VIEW_OPTIONS}

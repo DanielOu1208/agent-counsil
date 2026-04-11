@@ -14,10 +14,10 @@ export function buildLaneConfigs(agentCount: number): LaneConfig[] {
     { id: "orchestrator", label: "Orchestrator", avatar: "", role: "Moderator" },
   ];
   for (let i = 0; i < agentCount; i++) {
-    const letter = String.fromCharCode(65 + i); // A, B, C, ...
+    const number = i + 1;
     configs.push({
-      id: `debater-${letter.toLowerCase()}`,
-      label: `Debater ${letter}`,
+      id: `debater-${String.fromCharCode(97 + i)}`,
+      label: `Debater ${number}`,
       avatar: "",
       role: DEBATER_ROLES[i % DEBATER_ROLES.length],
     });
