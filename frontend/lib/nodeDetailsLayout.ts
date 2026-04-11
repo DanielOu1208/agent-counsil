@@ -500,6 +500,7 @@ export function moveTabToPane(
   // Check if tab already exists in target pane (dedupe case)
   const existingInTargetIndex = toPane.tabIds.indexOf(tabId);
   if (existingInTargetIndex >= 0) {
+    // Dedupe: remove from source, activate in target (always allowed)
     // Remove from source, activate in target
     const nextFromTabIds = fromPane.tabIds.filter((id) => id !== tabId);
     const willRemoveFromPane = nextFromTabIds.length === 0;
@@ -534,6 +535,11 @@ export function moveTabToPane(
       panes: nextPanes,
       activePaneId: nextActivePaneId,
     });
+  }
+
+  // Guard: reject move if target pane is at MAX_TABS_PER_PANE and does not already contain tab
+  if (toPane.tabIds.length >= MAX_TABS_PER_PANE) {
+    return layout;
   }
 
   // Normal move: remove from source, add to target

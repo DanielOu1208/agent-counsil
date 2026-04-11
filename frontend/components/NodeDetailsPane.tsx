@@ -1,6 +1,6 @@
 'use client';
 
-import { KeyboardEvent, useMemo, useRef } from 'react';
+import { KeyboardEvent, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import NodeDetailsTabPanel from './NodeDetailsTabPanel';
@@ -60,13 +60,13 @@ export default function NodeDetailsPane({
   onClosePaneRejected,
   onBeginTabDrag,
 }: NodeDetailsPaneProps) {
-  const paneRef = useRef<HTMLDivElement | null>(null);
-
   const activeTabId = pane.activeTabId;
   const activeDetails = activeTabId ? detailsByTabId[activeTabId] : undefined;
 
+  // Show drag overlays when dragging (for merge cues), edge highlights only when canSplit
   const hasDraggableContext = Boolean(draggingTabId);
-  const canRenderDropTargets = hasDraggableContext && canSplit;
+  const canRenderDropTargets = hasDraggableContext;
+  const canShowSplitEdge = hasDraggableContext && canSplit;
 
   const ariaLabel = useMemo(() => `Results pane ${paneIndex + 1} of ${paneCount}`, [paneCount, paneIndex]);
 
@@ -90,7 +90,6 @@ export default function NodeDetailsPane({
 
   return (
     <div
-      ref={paneRef}
       data-node-details-pane-id={pane.id}
       role="group"
       aria-label={ariaLabel}
@@ -112,14 +111,14 @@ export default function NodeDetailsPane({
           <div
             className={cn(
               'absolute inset-y-0 left-0 w-1/3 transition-colors',
-              hoveredDropEdge === 'left' ? 'bg-primary/18' : 'bg-transparent',
+              canShowSplitEdge && hoveredDropEdge === 'left' ? 'bg-primary/18' : 'bg-transparent',
             )}
           />
 
           <div
             className={cn(
               'absolute inset-y-0 right-0 w-1/3 transition-colors',
-              hoveredDropEdge === 'right' ? 'bg-primary/18' : 'bg-transparent',
+              canShowSplitEdge && hoveredDropEdge === 'right' ? 'bg-primary/18' : 'bg-transparent',
             )}
           />
         </div>
@@ -129,7 +128,6 @@ export default function NodeDetailsPane({
         className="flex min-h-9 items-center border-b border-border bg-muted/40 pr-1" 
         role="tablist" 
         aria-label={ariaLabel}
-        data-pane-header={pane.id}
       >
         <div 
           className="flex min-w-0 flex-1 items-end gap-px overflow-x-auto px-2 pt-1"

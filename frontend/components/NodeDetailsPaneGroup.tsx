@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import NodeDetailsPane from './NodeDetailsPane';
 import { cn } from '@/lib/utils';
 import { canClosePane, getSplitPaneBlockReason, MAX_RIGHT_PANES } from '@/lib/nodeDetailsLayout';
@@ -21,8 +22,8 @@ interface NodeDetailsPaneGroupProps {
   onCloseTab: (paneId: string, tabId: string) => void;
   onClosePane: (paneId: string) => void;
   onSplitTab: (targetPaneId: string, edge: WorkspaceSplitEdge, tabId: string) => void;
-  onMoveTabToPane?: (tabId: string, fromPaneId: string, toPaneId: string, toIndex?: number) => void;
-  onReorderTabInPane?: (paneId: string, fromIndex: number, toIndex: number) => void;
+  onMoveTabToPane: (tabId: string, fromPaneId: string, toPaneId: string, toIndex?: number) => void;
+  onReorderTabInPane: (paneId: string, fromIndex: number, toIndex: number) => void;
 }
 
 interface TabDragSession {
@@ -57,7 +58,7 @@ type DropTarget = TabDropTargetSplit | TabDropTargetInsert | TabDropTargetAppend
 
 const DRAG_START_THRESHOLD_PX = 6;
 const MIN_PANE_WIDTH_PX = 260;
-const TAB_STRIP_EDGE_THRESHOLD_PX = 80;
+const TAB_STRIP_EDGE_THRESHOLD_PX = 160;
 
 export default function NodeDetailsPaneGroup({
   layout,
@@ -78,6 +79,7 @@ export default function NodeDetailsPaneGroup({
 
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dragFromPaneId, setDragFromPaneId] = useState<string | null>(null);
+  const [dragPointer, setDragPointer] = useState<{ x: number; y: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -178,6 +180,7 @@ export default function NodeDetailsPaneGroup({
     dragSessionRef.current = null;
     setDraggingTabId(null);
     setDragFromPaneId(null);
+    setDragPointer(null);
     setDropTarget(null);
   }, [teardownListeners]);
 
@@ -210,8 +213,11 @@ export default function NodeDetailsPaneGroup({
           dragSessionRef.current = session;
           setDraggingTabId(session.tabId);
           setDragFromPaneId(session.fromPaneId);
+          setDragPointer({ x: event.clientX, y: event.clientY });
           setNotice(null);
         }
+
+        setDragPointer({ x: event.clientX, y: event.clientY });
 
         const nextTarget = getTabDropTargetAtPoint(event.clientX, event.clientY, session.fromPaneId, session.fromTabIndex);
         setDropTarget(nextTarget);
@@ -236,7 +242,11 @@ export default function NodeDetailsPaneGroup({
           
           if (finalTarget.intent === 'split') {
             // Validate target pane width for split viability
-            const targetPaneElement = document.querySelector(`[data-node-details-pane-id="${finalTarget.paneId}"]`);
+            // Use CSS.escape to safely escape pane id for querySelector
+            const escapedPaneId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+              ? CSS.escape(finalTarget.paneId)
+              : finalTarget.paneId.replace(/[\\'"]/g, '\\$&');
+            const targetPaneElement = document.querySelector(`[data-node-details-pane-id="${escapedPaneId}"]`);
             const targetPaneWidth = targetPaneElement?.getBoundingClientRect().width ?? 0;
             if (targetPaneWidth > 0 && targetPaneWidth / 2 < MIN_PANE_WIDTH_PX) {
               setNotice('Target pane is too narrow to split. Widen the workspace first.');
@@ -253,38 +263,29 @@ export default function NodeDetailsPaneGroup({
               }
             }
           } else if (finalTarget.intent === 'insert-tab') {
-            if (onMoveTabToPane || onReorderTabInPane) {
-              if (session.fromPaneId === finalTarget.paneId) {
-                // Reorder within same pane
-                if (onReorderTabInPane) {
-                  // Adjust index if moving within same pane
-                  let adjustedIndex = finalTarget.tabIndex;
-                  if (session.fromTabIndex < finalTarget.tabIndex) {
-                    adjustedIndex = Math.max(0, finalTarget.tabIndex - 1);
-                  }
-                  if (adjustedIndex !== session.fromTabIndex) {
-                    onReorderTabInPane(finalTarget.paneId, session.fromTabIndex, adjustedIndex);
-                  }
-                }
-              } else {
-                // Move to different pane
-                if (onMoveTabToPane) {
-                  onMoveTabToPane(session.tabId, session.fromPaneId, finalTarget.paneId, finalTarget.tabIndex);
-                }
+            if (session.fromPaneId === finalTarget.paneId) {
+              // Reorder within same pane
+              let adjustedIndex = finalTarget.tabIndex;
+              if (session.fromTabIndex < finalTarget.tabIndex) {
+                adjustedIndex = Math.max(0, finalTarget.tabIndex - 1);
               }
+              if (adjustedIndex !== session.fromTabIndex) {
+                onReorderTabInPane(finalTarget.paneId, session.fromTabIndex, adjustedIndex);
+              }
+            } else {
+              // Move to different pane
+              onMoveTabToPane(session.tabId, session.fromPaneId, finalTarget.paneId, finalTarget.tabIndex);
             }
           } else if (finalTarget.intent === 'append-tab') {
-            if (onMoveTabToPane) {
-              if (session.fromPaneId !== finalTarget.paneId) {
-                onMoveTabToPane(session.tabId, session.fromPaneId, finalTarget.paneId);
-              } else {
-                // Append to end of same pane
-                const pane = currentLayout.panes.find(p => p.id === finalTarget.paneId);
-                if (pane && onReorderTabInPane) {
-                  const lastIndex = pane.tabIds.length - 1;
-                  if (session.fromTabIndex !== lastIndex) {
-                    onReorderTabInPane(finalTarget.paneId, session.fromTabIndex, lastIndex);
-                  }
+            if (session.fromPaneId !== finalTarget.paneId) {
+              onMoveTabToPane(session.tabId, session.fromPaneId, finalTarget.paneId);
+            } else {
+              // Append to end of same pane
+              const pane = currentLayout.panes.find(p => p.id === finalTarget.paneId);
+              if (pane) {
+                const lastIndex = pane.tabIds.length - 1;
+                if (session.fromTabIndex !== lastIndex) {
+                  onReorderTabInPane(finalTarget.paneId, session.fromTabIndex, lastIndex);
                 }
               }
             }
@@ -294,16 +295,31 @@ export default function NodeDetailsPaneGroup({
         cleanupDragSession();
       };
 
+      // Cancel drag on window blur or visibility change (hidden) to prevent stuck drag state
+      const handleCancelDrag = () => {
+        cleanupDragSession();
+      };
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'hidden') {
+          handleCancelDrag();
+        }
+      };
+
       // Register listeners
       window.addEventListener('pointermove', handlePointerMove);
       window.addEventListener('pointerup', finishPointerSession);
       window.addEventListener('pointercancel', finishPointerSession);
+      window.addEventListener('blur', handleCancelDrag);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
 
       // Store cleanup function for central teardown
       listenerCleanupRef.current = () => {
         window.removeEventListener('pointermove', handlePointerMove);
         window.removeEventListener('pointerup', finishPointerSession);
         window.removeEventListener('pointercancel', finishPointerSession);
+        window.removeEventListener('blur', handleCancelDrag);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
       };
     },
     [cleanupDragSession, getTabDropTargetAtPoint, onSplitTab, onMoveTabToPane, onReorderTabInPane, teardownListeners],
@@ -326,6 +342,8 @@ export default function NodeDetailsPaneGroup({
     return null;
   })();
 
+  const draggingTitle = draggingTabId ? (tabsById[draggingTabId]?.title ?? 'Node tab') : null;
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {activeNotice ? (
@@ -333,6 +351,22 @@ export default function NodeDetailsPaneGroup({
           {activeNotice}
         </div>
       ) : null}
+
+      {typeof document !== 'undefined' && draggingTabId && dragPointer && draggingTitle
+        ? createPortal(
+            <div
+              className="pointer-events-none fixed z-[120] rounded-md border border-border/80 bg-background/95 px-2 py-1 text-[11px] font-medium text-foreground shadow-lg backdrop-blur"
+              style={{
+                left: dragPointer.x + 14,
+                top: dragPointer.y + 14,
+              }}
+              aria-hidden="true"
+            >
+              Dragging: {draggingTitle}
+            </div>,
+            document.body,
+          )
+        : null}
 
       <div className={cn('flex min-h-0 flex-1', draggingTabId && 'cursor-grabbing')}>
         {layout.panes.map((pane, index) => {
