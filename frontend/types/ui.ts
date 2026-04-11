@@ -9,6 +9,10 @@ export interface LaneConfig {
 
 const DEBATER_ROLES = ["Proponent", "Opponent", "Synthesizer", "Analyst", "Advocate", "Mediator", "Challenger", "Explorer"];
 
+function laneIdFromIndex(index: number): string {
+  return `debater-${String.fromCharCode(97 + index)}`;
+}
+
 export function buildLaneConfigs(agentCount: number): LaneConfig[] {
   const configs: LaneConfig[] = [
     { id: "orchestrator", label: "Orchestrator", avatar: "", role: "Moderator" },
@@ -16,7 +20,7 @@ export function buildLaneConfigs(agentCount: number): LaneConfig[] {
   for (let i = 0; i < agentCount; i++) {
     const number = i + 1;
     configs.push({
-      id: `debater-${String.fromCharCode(97 + i)}`,
+      id: laneIdFromIndex(i),
       label: `Debater ${number}`,
       avatar: "",
       role: DEBATER_ROLES[i % DEBATER_ROLES.length],
@@ -26,7 +30,7 @@ export function buildLaneConfigs(agentCount: number): LaneConfig[] {
 }
 
 export function buildAgentLanes(agentCount: number): LaneId[] {
-  return Array.from({ length: agentCount }, (_, i) => `debater-${String.fromCharCode(97 + i)}`);
+  return Array.from({ length: agentCount }, (_, i) => laneIdFromIndex(i));
 }
 
 export const LANE_ICON_NAMES: Record<string, string> = {

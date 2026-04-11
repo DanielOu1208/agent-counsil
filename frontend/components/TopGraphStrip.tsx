@@ -1,11 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import ReactFlow, { Background, Edge, Handle, Node, NodeProps, Position } from 'reactflow';
-import 'reactflow/dist/style.css';
+import {
+  ReactFlow,
+  Background,
+  Edge,
+  Handle,
+  Node,
+  NodeProps,
+  Position,
+  type NodeTypes,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import { MessageSquare } from 'lucide-react';
 import ElkConstructor from 'elkjs/lib/elk.bundled.js';
-import { DebateGraphEdge, DebateGraphNode, LaneConfig, LaneId, WorkspaceNodeDetails } from '@/types/ui';
+import { DebateGraphEdge, DebateGraphNode, LaneConfig, LaneId } from '@/types/ui';
+import { getNodeTitle } from '@/lib/graphNodeHelpers';
 
 interface TopGraphStripProps {
   graphNodes: DebateGraphNode[];
@@ -14,10 +24,10 @@ interface TopGraphStripProps {
   laneConfigs: LaneConfig[];
   lanePersonalityNameById?: Record<LaneId, string>;
   openNodeIds?: Set<string>;
-  onOpenNodeTab?: (nodeId: string, details: WorkspaceNodeDetails) => void;
+  onOpenNodeTab?: (nodeId: string) => void;
 }
 
-interface CompactGraphNodeData {
+interface CompactGraphNodeData extends Record<string, unknown> {
   title: string;
   personality: string;
   messageType: string;
@@ -54,10 +64,11 @@ const ELK_LAYOUT_OPTIONS = {
 const NODE_WIDTH = 110;
 const NODE_HEIGHT = 42;
 
-function CompactGraphNode({ data }: NodeProps<CompactGraphNodeData>) {
+function CompactGraphNode({ data }: NodeProps) {
+  const nodeData = data as CompactGraphNodeData;
   return (
     <div
-      title={data.hoverText}
+      title={nodeData.hoverText}
       className="relative flex h-full w-full items-center overflow-hidden px-2 py-1"
     >
       <Handle
@@ -68,12 +79,12 @@ function CompactGraphNode({ data }: NodeProps<CompactGraphNodeData>) {
       <span
         aria-hidden
         className="absolute inset-y-0 left-0 w-[2px]"
-        style={{ backgroundColor: data.laneColor }}
+        style={{ backgroundColor: nodeData.laneColor }}
       />
       <div className="min-w-0 pl-1">
-        <div className="truncate text-[9px] font-semibold tracking-wide text-foreground/90">{data.title}</div>
-        <div className="truncate text-[8px] text-foreground/50">{data.personality}</div>
-        <div className="truncate text-[8px] text-foreground/50">{data.messageType}</div>
+        <div className="truncate text-[9px] font-semibold tracking-wide text-foreground/90">{nodeData.title}</div>
+        <div className="truncate text-[8px] text-foreground/50">{nodeData.personality}</div>
+        <div className="truncate text-[8px] text-foreground/50">{nodeData.messageType}</div>
       </div>
       <Handle
         type="source"
@@ -84,22 +95,11 @@ function CompactGraphNode({ data }: NodeProps<CompactGraphNodeData>) {
   );
 }
 
-const NODE_TYPES = { compactNode: CompactGraphNode };
+const NODE_TYPES: NodeTypes = { compactNode: CompactGraphNode };
 
 function getLaneColor(laneId: LaneId, laneConfigs: LaneConfig[]): string {
   const index = laneConfigs.findIndex((lane) => lane.id === laneId);
   return LANE_COLOR_PALETTE[index >= 0 ? index % LANE_COLOR_PALETTE.length : 0];
-}
-
-function getNodeTitle(node: DebateGraphNode): string {
-  if (node.nodeType === 'final') return 'Final Answer';
-  if (node.nodeType === 'summary') return 'Summary';
-  if (node.nodeType === 'intervention') return 'Intervention';
-  if (node.nodeType === 'regen_root') return 'Regeneration Root';
-  if (node.speakerType === 'user') return 'User Prompt';
-  if (node.speakerType === 'orchestrator') return 'Orchestrator';
-  if (node.speakerType === 'system') return 'System';
-  return 'Agent Message';
 }
 
 function computeFallbackGridPositions(nodeIds: string[]): Map<string, { x: number; y: number }> {
@@ -267,9 +267,7 @@ export default function TopGraphStrip({
     [graphNodes],
   );
 
-  const { mergedEdges, nodeDetails } = useMemo(() => {
-    const nodesById = new Map(sortedNodes.map((node) => [node.id, node]));
-
+  const mergedEdges = useMemo(() => {
     const edgeRelationKey = (edge: {
       fromNodeId: string;
       toNodeId: string;
@@ -306,27 +304,10 @@ export default function TopGraphStrip({
       merged.push(fallbackEdge);
     }
 
-    const details: Record<string, WorkspaceNodeDetails> = {};
-    for (const node of sortedNodes) {
-      const laneId = resolveLane(node);
-      const title = getNodeTitle(node);
-      const laneLabel = laneConfigs.find((lane) => lane.id === laneId)?.label ?? 'Unknown';
-      details[node.id] = {
-        title,
-        lane: laneLabel,
-        content: node.content || (node.status === 'streaming' ? 'Streaming...' : 'No content'),
-      };
-    }
-
-    return { mergedEdges: merged, nodeDetails: details };
-  }, [sortedNodes, graphEdges, resolveLane, laneConfigs]);
+    return merged;
+  }, [sortedNodes, graphEdges]);
 
   const [layoutPositions, setLayoutPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
-  const layoutKey = useMemo(
-    () =>
-      `${sortedNodes.map((n) => n.id).join(',')}|${mergedEdges.map((e) => e.id).join(',')}`,
-    [sortedNodes, mergedEdges],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -338,9 +319,15 @@ export default function TopGraphStrip({
     return () => {
       cancelled = true;
     };
-  }, [layoutKey, sortedNodes, mergedEdges]);
+  }, [sortedNodes, mergedEdges]);
 
-  const flowNodes: Node<CompactGraphNodeData>[] = useMemo(() => {
+  // Build node status map for efficient edge animation lookup
+  const nodeStatusById = useMemo(
+    () => new Map(graphNodes.map((node) => [node.id, node.status])),
+    [graphNodes],
+  );
+
+  const flowNodes: Node[] = useMemo(() => {
     const fallbackPositions = computeFallbackGridPositions(sortedNodes.map((n) => n.id));
     const laneOrderById = new Map(laneConfigs.map((lane, index) => [lane.id, index]));
     const nodeMetaById = new Map<string, { speakerType: DebateGraphNode['speakerType']; laneOrder: number }>();
@@ -357,7 +344,7 @@ export default function TopGraphStrip({
       const fallbackPos = fallbackPositions.get(node.id)!;
       const position = elkPos ?? fallbackPos;
       const contentSnippet = (node.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
-      const messageType = getNodeTitle(node);
+      const messageType = getNodeTitle(node.nodeType, node.speakerType);
       const title = node.speakerType === 'user' ? 'User' : laneLabel;
       const personality = node.speakerType === 'agent' || node.speakerType === 'orchestrator'
         ? lanePersonalityNameById[laneId] ?? 'No personality'
@@ -401,18 +388,15 @@ export default function TopGraphStrip({
     () =>
       mergedEdges
         .filter((edge) => graphNodeIdSet.has(edge.fromNodeId) && graphNodeIdSet.has(edge.toNodeId))
-        .map((edge) => {
-          const targetNode = graphNodes.find((n) => n.id === edge.toNodeId);
-          return {
-            id: edge.id,
-            source: edge.fromNodeId,
-            target: edge.toNodeId,
-            type: 'smoothstep',
-            animated: targetNode?.status === 'streaming',
-            style: { stroke: 'oklch(0.28 0 0)' },
-          };
-        }),
-    [mergedEdges, graphNodeIdSet, graphNodes],
+        .map((edge) => ({
+          id: edge.id,
+          source: edge.fromNodeId,
+          target: edge.toNodeId,
+          type: 'smoothstep',
+          animated: nodeStatusById.get(edge.toNodeId) === 'streaming',
+          style: { stroke: 'oklch(0.28 0 0)' },
+        })),
+    [mergedEdges, graphNodeIdSet, nodeStatusById],
   );
 
   const nodes = useMemo(
@@ -434,11 +418,9 @@ export default function TopGraphStrip({
 
   const onNodeClick = useCallback(
     (_event: MouseEvent, node: Node) => {
-      const details = nodeDetails[node.id];
-      if (!details) return;
-      onOpenNodeTab?.(node.id, details);
+      onOpenNodeTab?.(node.id);
     },
-    [nodeDetails, onOpenNodeTab],
+    [onOpenNodeTab],
   );
 
   useEffect(() => {
@@ -452,12 +434,9 @@ export default function TopGraphStrip({
     if (!latestCompletedFinalNode) return;
     if (autoOpenedFinalNodeIdsRef.current.has(latestCompletedFinalNode.id)) return;
 
-    const details = nodeDetails[latestCompletedFinalNode.id];
-    if (!details) return;
-
-    onOpenNodeTab(latestCompletedFinalNode.id, details);
+    onOpenNodeTab(latestCompletedFinalNode.id);
     autoOpenedFinalNodeIdsRef.current.add(latestCompletedFinalNode.id);
-  }, [graphNodes, nodeDetails, onOpenNodeTab]);
+  }, [graphNodes, onOpenNodeTab]);
 
   if (nodes.length === 0) {
     return (

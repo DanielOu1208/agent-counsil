@@ -40,6 +40,7 @@ import {
   WORKSPACE_FIXED_TABS,
 } from '@/types/ui';
 import { DebateListItem } from '@/lib/api';
+import { getNodeTitle } from '@/lib/graphNodeHelpers';
 
 // Helper to format large numbers with commas
 function formatNumber(n: number): string {
@@ -51,17 +52,6 @@ function formatCost(cost: number | null, hasUnknown: boolean): string {
   if (hasUnknown) return '—';
   if (cost === null) return '$0.00';
   return `$${cost.toFixed(4)}`;
-}
-
-function getNodeTitle(nodeType: string, speakerType: string): string {
-  if (nodeType === 'final') return 'Final Answer';
-  if (nodeType === 'summary') return 'Summary';
-  if (nodeType === 'intervention') return 'Intervention';
-  if (nodeType === 'regen_root') return 'Regeneration Root';
-  if (speakerType === 'user') return 'User Prompt';
-  if (speakerType === 'orchestrator') return 'Orchestrator';
-  if (speakerType === 'system') return 'System';
-  return 'Agent Message';
 }
 
 const SESSION_SCOPE_ID_KEY = 'workspace:node-details-layout:session-id';
@@ -133,7 +123,6 @@ export default function AppShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [leftActiveTabId, setLeftActiveTabId] = useState<WorkspaceFixedTabId>(DEFAULT_WORKSPACE_TAB_ID);
   const [rightLayout, setRightLayout] = useState(() => createDefaultNodeDetailsLayout());
-  const [nodeDetailsByTabId, setNodeDetailsByTabId] = useState<Record<string, WorkspaceNodeDetails>>({});
   const [rightPaneNotice, setRightPaneNotice] = useState<string | null>(null);
   const lanePersonalityNameById = useMemo(() => {
     const personalityNameById = new Map(
@@ -202,13 +191,6 @@ export default function AppShell({
     return detailsByTabId;
   }, [graphNodes, laneConfigs, resolveLane]);
 
-  const resolvedNodeDetailsByTabId = useMemo(() => {
-    return {
-      ...nodeDetailsByTabId,
-      ...graphDerivedNodeDetailsByTabId,
-    };
-  }, [graphDerivedNodeDetailsByTabId, nodeDetailsByTabId]);
-
   const rightTabsById = useMemo(() => {
     const tabsById: Record<string, WorkspaceNodeTab> = {};
 
@@ -221,7 +203,7 @@ export default function AppShell({
         tabsById[tabId] = {
           id: tabId,
           kind: 'node',
-          title: resolvedNodeDetailsByTabId[tabId]?.title ?? `Node ${nodeId.slice(0, 8)}`,
+          title: graphDerivedNodeDetailsByTabId[tabId]?.title ?? `Node ${nodeId.slice(0, 8)}`,
           nodeId,
           closable: true,
         };
@@ -229,7 +211,7 @@ export default function AppShell({
     }
 
     return tabsById;
-  }, [resolvedNodeDetailsByTabId, rightLayout.panes]);
+  }, [graphDerivedNodeDetailsByTabId, rightLayout.panes]);
 
   const graphReadyForReconciliation = status !== 'starting';
 
@@ -339,14 +321,8 @@ export default function AppShell({
     return openIds;
   }, [graphNodeIdSet, rightLayout.panes]);
 
-  const handleOpenNodeTab = useCallback((nodeId: string, details: WorkspaceNodeDetails) => {
+  const handleOpenNodeTab = useCallback((nodeId: string) => {
     const tabId = buildNodeTabId(nodeId);
-
-    setNodeDetailsByTabId((prev) => ({
-      ...prev,
-      [tabId]: details,
-    }));
-
     setRightLayout((prev) => openNodeTabInActivePane(prev, tabId));
   }, []);
 
@@ -522,7 +498,7 @@ export default function AppShell({
             onRemoveAgent={onRemoveAgent}
             canAddAgent={canAddAgent}
             canRemoveAgent={canRemoveAgent}
-            nodeDetailsById={resolvedNodeDetailsByTabId}
+            nodeDetailsById={graphDerivedNodeDetailsByTabId}
           />
         </div>
       </div>
