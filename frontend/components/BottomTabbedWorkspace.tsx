@@ -1,29 +1,42 @@
 'use client';
 
-import { KeyboardEvent } from 'react';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { KeyboardEvent as ReactKeyboardEvent, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   WorkspaceFixedTab,
   WorkspaceFixedTabId,
   WorkspaceNodeDetails,
+  WorkspaceNodeDetailsLayoutV2,
   WorkspaceNodeTab,
 } from '@/types/ui';
-import { LaneConfig, LaneId, LaneSettings, ApiModel, ApiPersonality, ReasoningMessage } from '@/types/ui';
+import {
+  ApiModel,
+  ApiPersonality,
+  LaneConfig,
+  LaneId,
+  LaneSettings,
+  ReasoningMessage,
+  WorkspaceSplitEdge,
+} from '@/types/ui';
 import ConfigurationTabPanel from './ConfigurationTabPanel';
 import PersonalityTabPanel from './PersonalityTabPanel';
 import ReasoningLanes from './ReasoningLanes';
-import NodeDetailsTabPanel from './NodeDetailsTabPanel';
+import NodeDetailsPaneGroup from './NodeDetailsPaneGroup';
 
 interface BottomTabbedWorkspaceProps {
   leftTabs: WorkspaceFixedTab[];
   leftActiveTabId: WorkspaceFixedTabId;
   onLeftTabChange: (tabId: WorkspaceFixedTabId) => void;
-  rightTabs: WorkspaceNodeTab[];
-  rightActiveTabId: string | null;
-  onRightTabChange: (tabId: string | null) => void;
-  onCloseNodeTab: (tabId: string) => void;
+  rightLayout: WorkspaceNodeDetailsLayoutV2;
+  rightTabsById: Record<string, WorkspaceNodeTab>;
+  onActivateRightPane: (paneId: string) => void;
+  onActivateRightTab: (paneId: string, tabId: string) => void;
+  onCloseRightTab: (paneId: string, tabId: string) => void;
+  onCloseRightPane: (paneId: string) => void;
+  onSplitRightTab: (targetPaneId: string, edge: WorkspaceSplitEdge, tabId: string) => void;
+  onSplitActivePaneRight: () => void;
+  onFocusRightPaneByIndex: (index: number) => void;
+  rightPaneNotice?: string | null;
   laneConfigs: LaneConfig[];
   laneSettings: Record<LaneId, LaneSettings>;
   onLaneSettingsChange: (laneId: LaneId, settings: LaneSettings) => void;
@@ -42,10 +55,16 @@ export default function BottomTabbedWorkspace({
   leftTabs,
   leftActiveTabId,
   onLeftTabChange,
-  rightTabs,
-  rightActiveTabId,
-  onRightTabChange,
-  onCloseNodeTab,
+  rightLayout,
+  rightTabsById,
+  onActivateRightPane,
+  onActivateRightTab,
+  onCloseRightTab,
+  onCloseRightPane,
+  onSplitRightTab,
+  onSplitActivePaneRight,
+  onFocusRightPaneByIndex,
+  rightPaneNotice,
   laneConfigs,
   laneSettings,
   onLaneSettingsChange,
@@ -59,7 +78,7 @@ export default function BottomTabbedWorkspace({
   canRemoveAgent,
   nodeDetailsById,
 }: BottomTabbedWorkspaceProps) {
-  const handleLeftKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tabId: WorkspaceFixedTabId) => {
+  const handleLeftKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, tabId: WorkspaceFixedTabId) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 
     const currentIndex = leftTabs.findIndex((tab) => tab.id === tabId);
@@ -76,25 +95,43 @@ export default function BottomTabbedWorkspace({
     trigger?.focus();
   };
 
-  const handleRightKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tabId: string) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    if (rightTabs.length === 0) return;
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
 
-    const currentIndex = rightTabs.findIndex((tab) => tab.id === tabId);
-    if (currentIndex === -1) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tagName = target.tagName.toLowerCase();
+        const isTypingTarget =
+          tagName === 'input' ||
+          tagName === 'textarea' ||
+          tagName === 'select' ||
+          target.isContentEditable ||
+          Boolean(target.closest('[contenteditable="true"], [role="textbox"]'));
+        if (isTypingTarget) return;
+      }
 
-    event.preventDefault();
-    const delta = event.key === 'ArrowRight' ? 1 : -1;
-    const nextIndex = (currentIndex + delta + rightTabs.length) % rightTabs.length;
-    const nextTab = rightTabs[nextIndex];
-    if (!nextTab) return;
+      const hasPrimaryModifier = event.metaKey || event.ctrlKey;
+      if (!hasPrimaryModifier) return;
+      if (event.altKey) return;
 
-    onRightTabChange(nextTab.id);
-    const trigger = document.getElementById(`workspace-right-tab-${nextTab.id}`);
-    trigger?.focus();
-  };
+      if (event.key === '\\') {
+        event.preventDefault();
+        onSplitActivePaneRight();
+        return;
+      }
 
-  const activeNodeDetails = rightActiveTabId ? nodeDetailsById[rightActiveTabId] : undefined;
+      if (event.key >= '1' && event.key <= '4') {
+        const index = Number.parseInt(event.key, 10) - 1;
+        if (Number.isNaN(index)) return;
+        event.preventDefault();
+        onFocusRightPaneByIndex(index);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onFocusRightPaneByIndex, onSplitActivePaneRight]);
 
   return (
     <section className="grid h-full min-h-0 grid-cols-10 border-t border-border bg-popover/95 backdrop-blur-sm">
@@ -176,64 +213,17 @@ export default function BottomTabbedWorkspace({
         </div>
 
       <div className="col-span-7 flex min-h-0 flex-col">
-        <div className="overflow-x-auto border-b border-border bg-muted/40" role="tablist" aria-label="Node detail tabs">
-          <div className="flex min-w-max items-end gap-px px-2 pt-1">
-            {rightTabs.map((tab) => {
-              const isActive = tab.id === rightActiveTabId;
-              const panelId = `workspace-right-panel-${tab.id}`;
-
-              return (
-                <div
-                  key={tab.id}
-                  className={cn(
-                    'group relative flex min-h-8 items-stretch rounded-none border border-b-0',
-                    isActive
-                      ? 'z-10 -mb-px border-border bg-background text-foreground shadow-sm'
-                      : 'border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-                  )}
-                >
-                  <button
-                    id={`workspace-right-tab-${tab.id}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    aria-controls={panelId}
-                    tabIndex={isActive ? 0 : -1}
-                    className="max-w-[240px] truncate px-2.5 py-1.5 text-left text-xs font-medium"
-                    onClick={() => onRightTabChange(tab.id)}
-                    onKeyDown={(event) => handleRightKeyDown(event, tab.id)}
-                  >
-                    {tab.title}
-                  </button>
-
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className={cn(
-                      'size-6 rounded-none text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                      !isActive && 'opacity-70 group-hover:opacity-100',
-                    )}
-                    onClick={() => onCloseNodeTab(tab.id)}
-                    aria-label={`Close ${tab.title} tab`}
-                  >
-                    <X className="size-3.5" />
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div
-          id={rightActiveTabId ? `workspace-right-panel-${rightActiveTabId}` : 'workspace-right-panel-empty'}
-          role="tabpanel"
-          aria-labelledby={rightActiveTabId ? `workspace-right-tab-${rightActiveTabId}` : undefined}
-          aria-label={rightActiveTabId ? undefined : 'Node details'}
-          className="min-h-0 flex-1"
-        >
-          <NodeDetailsTabPanel details={activeNodeDetails} />
-        </div>
+        <NodeDetailsPaneGroup
+          layout={rightLayout}
+          tabsById={rightTabsById}
+          detailsByTabId={nodeDetailsById}
+          externalNotice={rightPaneNotice}
+          onActivatePane={onActivateRightPane}
+          onActivateTab={onActivateRightTab}
+          onCloseTab={onCloseRightTab}
+          onClosePane={onCloseRightPane}
+          onSplitTab={onSplitRightTab}
+        />
       </div>
     </section>
   );

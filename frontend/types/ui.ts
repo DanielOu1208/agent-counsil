@@ -128,6 +128,30 @@ export interface WorkspaceNodeTab {
   closable: true;
 }
 
+export type WorkspaceSplitEdge = 'left' | 'right';
+
+export interface WorkspaceRightPane {
+  id: string;
+  tabIds: string[];
+  activeTabId: string | null;
+}
+
+export interface WorkspaceNodeDetailsLayoutV2 {
+  version: 2;
+  panes: WorkspaceRightPane[];
+  activePaneId: string;
+}
+
+export interface PersistedWorkspaceNodeDetailsLayoutV2 {
+  version: 2;
+  panes: Array<{
+    id: string;
+    tabIds: string[];
+    activeTabId: string | null;
+  }>;
+  activePaneId: string;
+}
+
 export type WorkspaceTab = WorkspaceFixedTab | WorkspaceNodeTab;
 
 export const WORKSPACE_FIXED_TABS: WorkspaceFixedTab[] = [

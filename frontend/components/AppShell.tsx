@@ -1,10 +1,26 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DebateSidebar from './DebateSidebar';
 import TopGraphStrip from './TopGraphStrip';
 import DebateInputBar from './DebateInputBar';
 import BottomTabbedWorkspace from './BottomTabbedWorkspace';
+import {
+  activatePane,
+  activateTab,
+  buildNodeTabId,
+  closePane,
+  closeTabInPane,
+  createDefaultNodeDetailsLayout,
+  getSplitPaneBlockReason,
+  LAYOUT_STORAGE_WRITE_DEBOUNCE_MS,
+  openNodeTabInActivePane,
+  parseLayoutFromStorage,
+  parseNodeIdFromTabId,
+  sanitizeNodeDetailsLayout,
+  serializeLayoutForStorage,
+  splitPaneWithTab,
+} from '@/lib/nodeDetailsLayout';
 import {
   ApiModel,
   ApiPersonality,
@@ -19,6 +35,7 @@ import {
   WorkspaceFixedTabId,
   WorkspaceNodeDetails,
   WorkspaceNodeTab,
+  WorkspaceSplitEdge,
   WORKSPACE_FIXED_TABS,
 } from '@/types/ui';
 import { DebateListItem } from '@/lib/api';
@@ -34,6 +51,19 @@ function formatCost(cost: number | null, hasUnknown: boolean): string {
   if (cost === null) return '$0.00';
   return `$${cost.toFixed(4)}`;
 }
+
+function getNodeTitle(nodeType: string, speakerType: string): string {
+  if (nodeType === 'final') return 'Final Answer';
+  if (nodeType === 'summary') return 'Summary';
+  if (nodeType === 'intervention') return 'Intervention';
+  if (nodeType === 'regen_root') return 'Regeneration Root';
+  if (speakerType === 'user') return 'User Prompt';
+  if (speakerType === 'orchestrator') return 'Orchestrator';
+  if (speakerType === 'system') return 'System';
+  return 'Agent Message';
+}
+
+const SESSION_SCOPE_ID_KEY = 'workspace:node-details-layout:session-id';
 
 interface AppShellProps {
   laneConfigs: LaneConfig[];
@@ -101,79 +131,287 @@ export default function AppShell({
 }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [leftActiveTabId, setLeftActiveTabId] = useState<WorkspaceFixedTabId>(DEFAULT_WORKSPACE_TAB_ID);
-  const [rightTabs, setRightTabs] = useState<WorkspaceNodeTab[]>([]);
-  const [rightActiveTabId, setRightActiveTabId] = useState<string | null>(null);
+  const [rightLayout, setRightLayout] = useState(() => createDefaultNodeDetailsLayout());
   const [nodeDetailsByTabId, setNodeDetailsByTabId] = useState<Record<string, WorkspaceNodeDetails>>({});
+  const [rightPaneNotice, setRightPaneNotice] = useState<string | null>(null);
+  const [sessionScopeId] = useState<string>(() => {
+    if (typeof window === 'undefined') {
+      return 'server-session';
+    }
+
+    const existing = window.sessionStorage.getItem(SESSION_SCOPE_ID_KEY);
+    if (existing) return existing;
+
+    const nextSessionId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+    window.sessionStorage.setItem(SESSION_SCOPE_ID_KEY, nextSessionId);
+    return nextSessionId;
+  });
+
+  const hasHydratedScopeRef = useRef(false);
+  const layoutScopeTokenRef = useRef(0);
+
+  useEffect(() => {
+    if (!rightPaneNotice) return;
+    const timeoutId = window.setTimeout(() => {
+      setRightPaneNotice(null);
+    }, 2200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [rightPaneNotice]);
+
+  const layoutStorageKey = useMemo(() => {
+    if (activeDebateId) return `workspace:node-details-layout:v2:debate:${activeDebateId}`;
+    if (sessionScopeId) return `workspace:node-details-layout:v2:session:${sessionScopeId}`;
+    return null;
+  }, [activeDebateId, sessionScopeId]);
 
   const graphNodeIdSet = useMemo(() => new Set(graphNodes.map((node) => node.id)), [graphNodes]);
 
-  const visibleRightTabs = useMemo(() => {
-    return rightTabs.filter((tab) => graphNodeIdSet.has(tab.nodeId));
-  }, [graphNodeIdSet, rightTabs]);
+  const graphDerivedNodeDetailsByTabId = useMemo(() => {
+    const detailsByTabId: Record<string, WorkspaceNodeDetails> = {};
 
-  const resolvedRightActiveTabId = useMemo(() => {
-    if (!rightActiveTabId) return null;
-    return visibleRightTabs.some((tab) => tab.id === rightActiveTabId)
-      ? rightActiveTabId
-      : null;
-  }, [rightActiveTabId, visibleRightTabs]);
+    for (const node of graphNodes) {
+      const tabId = buildNodeTabId(node.id);
+      const laneId = resolveLane(node);
+      const lane = laneConfigs.find((config) => config.id === laneId)?.label ?? 'Unknown';
+
+      detailsByTabId[tabId] = {
+        title: getNodeTitle(node.nodeType, node.speakerType),
+        lane,
+        content: node.content || (node.status === 'streaming' ? 'Streaming...' : 'No content'),
+      };
+    }
+
+    return detailsByTabId;
+  }, [graphNodes, laneConfigs, resolveLane]);
+
+  const resolvedNodeDetailsByTabId = useMemo(() => {
+    return {
+      ...nodeDetailsByTabId,
+      ...graphDerivedNodeDetailsByTabId,
+    };
+  }, [graphDerivedNodeDetailsByTabId, nodeDetailsByTabId]);
+
+  const rightTabsById = useMemo(() => {
+    const tabsById: Record<string, WorkspaceNodeTab> = {};
+
+    for (const pane of rightLayout.panes) {
+      for (const tabId of pane.tabIds) {
+        const nodeId = parseNodeIdFromTabId(tabId);
+        if (!nodeId) continue;
+        if (tabsById[tabId]) continue;
+
+        tabsById[tabId] = {
+          id: tabId,
+          kind: 'node',
+          title: resolvedNodeDetailsByTabId[tabId]?.title ?? `Node ${nodeId.slice(0, 8)}`,
+          nodeId,
+          closable: true,
+        };
+      }
+    }
+
+    return tabsById;
+  }, [resolvedNodeDetailsByTabId, rightLayout.panes]);
+
+  const graphReadyForReconciliation = status !== 'starting';
+
+  useEffect(() => {
+    if (!layoutStorageKey) return;
+    if (typeof window === 'undefined') return;
+
+    layoutScopeTokenRef.current += 1;
+    const scopeToken = layoutScopeTokenRef.current;
+    hasHydratedScopeRef.current = false;
+
+    let hydrated = createDefaultNodeDetailsLayout();
+    try {
+      const persistedRaw = window.localStorage.getItem(layoutStorageKey);
+      if (persistedRaw) {
+        const parsed = parseLayoutFromStorage(persistedRaw);
+        hydrated = sanitizeNodeDetailsLayout(parsed, {
+          pruneMissingNodeTabs: false,
+        });
+      }
+    } catch {
+      hydrated = createDefaultNodeDetailsLayout();
+    }
+
+    const hydrationTimeoutId = window.setTimeout(() => {
+      if (scopeToken !== layoutScopeTokenRef.current) return;
+      setRightLayout(hydrated);
+      hasHydratedScopeRef.current = true;
+    }, 0);
+
+    return () => {
+      window.clearTimeout(hydrationTimeoutId);
+    };
+  }, [layoutStorageKey]);
+
+  useEffect(() => {
+    if (!layoutStorageKey) return;
+    if (!graphReadyForReconciliation) return;
+
+    const scopeToken = layoutScopeTokenRef.current;
+    setRightLayout((prev) => {
+      if (scopeToken !== layoutScopeTokenRef.current) return prev;
+      return sanitizeNodeDetailsLayout(prev, {
+        validNodeIds: graphNodeIdSet,
+        pruneMissingNodeTabs: true,
+      });
+    });
+  }, [graphNodeIdSet, graphReadyForReconciliation, layoutStorageKey]);
+
+  useEffect(() => {
+    if (!layoutStorageKey) return;
+    if (typeof window === 'undefined') return;
+    if (!hasHydratedScopeRef.current) return;
+
+    const scopeToken = layoutScopeTokenRef.current;
+    const timeoutId = window.setTimeout(() => {
+      if (scopeToken !== layoutScopeTokenRef.current) return;
+
+      const serialized = serializeLayoutForStorage(rightLayout);
+      if (!serialized) return;
+
+      try {
+        window.localStorage.setItem(layoutStorageKey, serialized);
+      } catch {
+        // Fail-soft: ignore storage errors/quota issues.
+      }
+    }, LAYOUT_STORAGE_WRITE_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [layoutStorageKey, rightLayout]);
+
+  useEffect(() => {
+    if (!layoutStorageKey) return;
+    if (typeof window === 'undefined') return;
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== layoutStorageKey) return;
+      if (!event.newValue) return;
+
+      const parsed = parseLayoutFromStorage(event.newValue);
+      if (!parsed) return;
+
+      setRightLayout(
+        sanitizeNodeDetailsLayout(parsed, {
+          validNodeIds: graphReadyForReconciliation ? graphNodeIdSet : undefined,
+          pruneMissingNodeTabs: graphReadyForReconciliation,
+        }),
+      );
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [graphNodeIdSet, graphReadyForReconciliation, layoutStorageKey]);
 
   const openNodeIds = useMemo(() => {
-    return new Set(
-      visibleRightTabs.map((tab) => tab.nodeId),
-    );
-  }, [visibleRightTabs]);
+    const openIds = new Set<string>();
+
+    for (const pane of rightLayout.panes) {
+      for (const tabId of pane.tabIds) {
+        const nodeId = parseNodeIdFromTabId(tabId);
+        if (!nodeId) continue;
+        if (!graphNodeIdSet.has(nodeId)) continue;
+        openIds.add(nodeId);
+      }
+    }
+
+    return openIds;
+  }, [graphNodeIdSet, rightLayout.panes]);
 
   const handleOpenNodeTab = useCallback((nodeId: string, details: WorkspaceNodeDetails) => {
-    const tabId = `node:${nodeId}`;
+    const tabId = buildNodeTabId(nodeId);
 
     setNodeDetailsByTabId((prev) => ({
       ...prev,
       [tabId]: details,
     }));
 
-    setRightTabs((prev) => {
-      if (prev.some((tab) => tab.id === tabId)) {
+    setRightLayout((prev) => openNodeTabInActivePane(prev, tabId));
+  }, []);
+
+  const handleActivateRightPane = useCallback((paneId: string) => {
+    setRightLayout((prev) => activatePane(prev, paneId));
+  }, []);
+
+  const handleActivateRightTab = useCallback((paneId: string, tabId: string) => {
+    setRightLayout((prev) => activateTab(prev, paneId, tabId));
+  }, []);
+
+  const handleCloseRightTab = useCallback((paneId: string, tabId: string) => {
+    setRightLayout((prev) => closeTabInPane(prev, paneId, tabId));
+  }, []);
+
+  const handleCloseRightPane = useCallback((paneId: string) => {
+    setRightLayout((prev) => closePane(prev, paneId));
+  }, []);
+
+  const handleSplitRightTab = useCallback((targetPaneId: string, edge: WorkspaceSplitEdge, tabId: string) => {
+    setRightLayout((prev) => {
+      const next = splitPaneWithTab(prev, {
+        targetPaneId,
+        edge,
+        draggedTabId: tabId,
+      });
+
+      return next ?? prev;
+    });
+  }, []);
+
+  const handleSplitActivePaneRight = useCallback(() => {
+    setRightLayout((prev) => {
+      const activePane = prev.panes.find((pane) => pane.id === prev.activePaneId);
+      if (!activePane) {
+        setRightPaneNotice('No active pane available to split.');
         return prev;
       }
 
-      return [
-        ...prev,
-        {
-          id: tabId,
-          kind: 'node',
-          title: details.title,
-          nodeId,
-          closable: true,
-        },
-      ];
-    });
-
-    setRightActiveTabId(tabId);
-  }, []);
-
-  const handleCloseNodeTab = useCallback((tabId: string) => {
-    setRightTabs((prev) => {
-      const closeIndex = prev.findIndex((tab) => tab.id === tabId);
-      if (closeIndex === -1) return prev;
-
-      const next = prev.filter((tab) => tab.id !== tabId);
-
-      if (resolvedRightActiveTabId === tabId) {
-        const leftNeighbor = prev[closeIndex - 1];
-        setRightActiveTabId(leftNeighbor?.id ?? null);
+      const splitTabId = activePane.activeTabId ?? activePane.tabIds[activePane.tabIds.length - 1];
+      if (!splitTabId) {
+        setRightPaneNotice('Open a node tab first, then split the pane.');
+        return prev;
       }
 
-      return next;
-    });
+      const splitBlockReason = getSplitPaneBlockReason(prev, {
+        targetPaneId: activePane.id,
+        draggedTabId: splitTabId,
+      });
+      if (splitBlockReason) {
+        setRightPaneNotice(splitBlockReason);
+        return prev;
+      }
 
-    setNodeDetailsByTabId((prev) => {
-      if (!(tabId in prev)) return prev;
-      const next = { ...prev };
-      delete next[tabId];
+      const next = splitPaneWithTab(prev, {
+        targetPaneId: activePane.id,
+        edge: 'right',
+        draggedTabId: splitTabId,
+      });
+
+      if (!next) {
+        setRightPaneNotice('Could not split pane right now. Please try again.');
+        return prev;
+      }
+
+      setRightPaneNotice(null);
+
       return next;
     });
-  }, [resolvedRightActiveTabId]);
+  }, []);
+
+  const handleFocusRightPaneByIndex = useCallback((index: number) => {
+    setRightLayout((prev) => {
+      const targetPane = prev.panes[index];
+      if (!targetPane) return prev;
+      return activatePane(prev, targetPane.id);
+    });
+  }, []);
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
@@ -241,10 +479,16 @@ export default function AppShell({
             leftTabs={WORKSPACE_FIXED_TABS}
             leftActiveTabId={leftActiveTabId}
             onLeftTabChange={setLeftActiveTabId}
-            rightTabs={visibleRightTabs}
-            rightActiveTabId={resolvedRightActiveTabId}
-            onRightTabChange={setRightActiveTabId}
-            onCloseNodeTab={handleCloseNodeTab}
+            rightLayout={rightLayout}
+            rightTabsById={rightTabsById}
+            onActivateRightPane={handleActivateRightPane}
+            onActivateRightTab={handleActivateRightTab}
+            onCloseRightTab={handleCloseRightTab}
+            onCloseRightPane={handleCloseRightPane}
+            onSplitRightTab={handleSplitRightTab}
+            onSplitActivePaneRight={handleSplitActivePaneRight}
+            onFocusRightPaneByIndex={handleFocusRightPaneByIndex}
+            rightPaneNotice={rightPaneNotice}
             laneConfigs={laneConfigs}
             laneSettings={laneSettings}
             onLaneSettingsChange={onLaneSettingsChange}
@@ -256,7 +500,7 @@ export default function AppShell({
             onRemoveAgent={onRemoveAgent}
             canAddAgent={canAddAgent}
             canRemoveAgent={canRemoveAgent}
-            nodeDetailsById={nodeDetailsByTabId}
+            nodeDetailsById={resolvedNodeDetailsByTabId}
           />
         </div>
       </div>
