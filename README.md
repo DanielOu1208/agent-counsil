@@ -18,10 +18,14 @@ It includes:
 - Configure a debate with multiple agents (model + personality per agent)
 - Orchestrator-driven debate phases (instead of uncontrolled free chat)
 - Streamed debate output via SSE
-- Graph view of message nodes and relationships
+- Lane-aware graph view of message nodes and relationships
+- ELK-based graph layout for cleaner node placement
+- Bottom tabbed workspace for node details, including tab movement and reordering
+- Debate sidebar with loading and error states
 - User interventions during a run
 - Regeneration from a specific node into a new branch
 - Personality preset and custom personality management
+- Model catalog browsing with pricing estimation and session usage tracking
 
 ## Tech Stack
 
@@ -36,10 +40,20 @@ It includes:
 agent-counsil/
 ├── frontend/      # Next.js app (UI)
 ├── backend/       # Hono API + orchestrator + DB layer
+├── docs/          # Feature-specific documentation
 ├── SPEC.md        # Current UX/implementation spec notes
 ├── prd.md         # Product requirements document
 └── render.yaml    # Render deployment config (backend)
 ```
+
+## Documentation
+
+The root README stays intentionally short. For feature-specific details, start here:
+
+- [Documentation index](docs/README.md)
+- [Graph layout and lane mapping](docs/graph-layout-and-lanes.md)
+- [Bottom tabbed workspace](docs/bottom-tabbed-workspace.md)
+- [Sidebar, debate switching, and model usage](docs/sidebar-debate-and-model-usage.md)
 
 ## Quick Start (Local)
 
